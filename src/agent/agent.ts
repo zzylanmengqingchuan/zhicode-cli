@@ -22,7 +22,12 @@ import { config as loadEnv } from 'dotenv';
 import { maybePersistedOutput, tools } from './tools.js';
 import { listSkills, skillsPrompt } from './skills.js';
 import { getModelContextLimit } from './context-stats.js';
-import { compressionRange, formatMessagesForCompression } from './context.js';
+import {
+  capMessages,
+  compressionRange,
+  formatMessagesForCompression,
+  simplifyToolMessages,
+} from './context.js';
 
 // 全局命令运行时没有 --env-file，这里兜底加载 .env（不覆盖已有环境变量）
 loadEnv({
@@ -97,17 +102,17 @@ export const SUMMARY_PREFIX = '【对话历史摘要】';
 
 function getModelInputMessages(state: AgentState): BaseMessage[] {
   if (state.llmInputMessages != null && state.llmInputMessages.length > 0) {
-    return state.llmInputMessages;
+    return capMessages(state.llmInputMessages);
   }
   if (state.summary && state.compressedUpTo > 0) {
-    return [
+    return capMessages([
       new SystemMessage(
         `${SUMMARY_PREFIX}以下是之前对话的压缩摘要，回答时请将其作为已知上下文：\n${state.summary}`,
       ),
-      ...state.messages.slice(state.compressedUpTo),
-    ];
+      ...simplifyToolMessages(state.messages.slice(state.compressedUpTo)),
+    ]);
   }
-  return state.messages;
+  return capMessages(simplifyToolMessages(state.messages));
 }
 
 // —— Graph 节点 —————————————————————————————————————————————
