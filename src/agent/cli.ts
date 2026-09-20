@@ -8,20 +8,43 @@ const THREAD_ID = 'user-session-1';
 
 async function chat(rl: readline.Interface, userInput: string): Promise<void> {
   const isTTY = process.stdin.isTTY;
-  if (isTTY) rl.pause(); // 交互终端下暂停 readline，避免光标错位（管道输入时不能暂停，否则会丢行）
+  const controller = new AbortController();
 
-  process.stdout.write('\nAI: ');
+  const onKeypress = (_str: string, key: readline.Key) => {
+    if (key && key.name === 'escape') {
+      controller.abort();
+    }
+  };
 
-  await runAgentStream(
-    userInput,
-    (token: string) => {
-      process.stdout.write(token);
-    },
-    THREAD_ID,
-  );
+  if (isTTY) {
+    // 注意：不能 rl.pause()，它会暂停 stdin 导致 keypress 事件收不到。
+    // 保持 readline 运行，流式期间输入的字符会被缓冲为下一行（type-ahead）。
+    readline.emitKeypressEvents(process.stdin);
+    process.stdin.on('keypress', onKeypress);
+    process.stdout.write('\nAI: (按 ESC 取消) ');
+  } else {
+    process.stdout.write('\nAI: ');
+  }
+
+  try {
+    await runAgentStream(
+      userInput,
+      (token: string) => {
+        process.stdout.write(token);
+      },
+      THREAD_ID,
+      controller.signal,
+    );
+  } catch (err) {
+    if (!controller.signal.aborted) throw err;
+    process.stdout.write('\n[已取消本次回复]');
+  } finally {
+    if (isTTY) {
+      process.stdin.off('keypress', onKeypress);
+    }
+  }
 
   process.stdout.write('\n\n');
-  if (isTTY) rl.resume(); // 恢复 readline
 }
 
 export async function startChat(): Promise<void> {

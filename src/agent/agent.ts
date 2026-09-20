@@ -72,14 +72,16 @@ export async function runAgent(
  * @param userMessage - 当前用户输入（历史已由 checkpointer 自动续接）
  * @param onToken - 每个 token 到来时的回调 (token: string) => void
  * @param threadId - 会话 ID，相同 ID 自动续上历史记录
+ * @param signal - 可选的中止信号，触发后取消本次 AI 请求
  * @returns 完整的 AI 回复文本
  */
 export async function runAgentStream(
   userMessage: string,
   onToken: (token: string) => void,
   threadId: string = 'default-session',
+  signal?: AbortSignal,
 ): Promise<string> {
-  const config = { configurable: { thread_id: threadId } };
+  const config = { configurable: { thread_id: threadId }, signal };
 
   const stream = await agent.stream(
     { messages: [{ role: 'user', content: userMessage }] },
