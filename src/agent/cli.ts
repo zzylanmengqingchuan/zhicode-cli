@@ -4,11 +4,25 @@ import * as readline from 'node:readline';
 import { runAgentStream } from './agent.js';
 import { showBanner } from './banner.js';
 import { createCommand } from './command.js';
+import { handleSlashCommand, type CommandContext } from './commands.js';
 
 // 每次启动生成新的会话 ID；历史记录由 agent.ts 的 checkpointer 按此 ID 持久化
-const THREAD_ID = `session-${randomUUID()}`;
+// 斜杠命令（如 /new）可通过 CommandContext 切换会话
+function createContext(): CommandContext {
+  let threadId = `session-${randomUUID()}`;
+  return {
+    getThreadId: () => threadId,
+    setThreadId: (id: string) => {
+      threadId = id;
+    },
+  };
+}
 
-async function chat(rl: readline.Interface, userInput: string): Promise<void> {
+async function chat(
+  rl: readline.Interface,
+  ctx: CommandContext,
+  userInput: string,
+): Promise<void> {
   const isTTY = process.stdin.isTTY;
   const controller = new AbortController();
 
@@ -34,7 +48,7 @@ async function chat(rl: readline.Interface, userInput: string): Promise<void> {
       (token: string) => {
         process.stdout.write(token);
       },
-      THREAD_ID,
+      ctx.getThreadId(),
       controller.signal,
     );
   } catch (err) {
@@ -54,6 +68,7 @@ export async function startChat(): Promise<void> {
     input: process.stdin,
     output: process.stdout,
   });
+  const ctx = createContext();
 
   showBanner();
 
@@ -65,9 +80,14 @@ export async function startChat(): Promise<void> {
 
     if (userInput === 'exit' || userInput === 'quit') break;
 
+    if (await handleSlashCommand(userInput, ctx)) {
+      rl.prompt();
+      continue;
+    }
+
     if (userInput) {
       try {
-        await chat(rl, userInput);
+        await chat(rl, ctx, userInput);
       } catch (err) {
         console.error(`\n[出错] ${err instanceof Error ? err.message : String(err)}\n`);
       }
@@ -81,3 +101,4 @@ export async function startChat(): Promise<void> {
 
 const program = createCommand(startChat);
 program.parseAsync(process.argv);
+

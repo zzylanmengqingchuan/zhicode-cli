@@ -32,5 +32,7 @@ export function showBanner(): void {
   // 使用说明
   console.log(chalk.gray('使用说明:'));
   console.log(`  ${chalk.yellow('ESC')}   取消 AI 请求`);
+  console.log(`  ${chalk.yellow('/new')}  开启新会话`);
+  console.log(`  ${chalk.yellow('/sessions')}  查看历史会话`);
   console.log(`  ${chalk.yellow('exit')}  退出\n`);
 }

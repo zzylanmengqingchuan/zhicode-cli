@@ -5,4 +5,5 @@ coverage/
 .env
 .DS_Store
 tmp-tool-test/
+tmp-sessions-test/
 .data/
