@@ -3,7 +3,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { createAgent } from 'langchain';
 import { MemorySaver } from '@langchain/langgraph';
 import { config as loadEnv } from 'dotenv';
-import { search } from './tools/search.js';
+import { tools } from './tools/index.js';
 
 // 全局命令运行时没有 --env-file，这里兜底加载 .env（不覆盖已有环境变量）
 loadEnv({
@@ -28,7 +28,7 @@ const model = new ChatOpenAI({
 // —— Agent 创建 —————————————————————————————————————————————
 export const agent = createAgent({
   model,
-  tools: [search],
+  tools,
   systemPrompt: 'You are a helpful assistant.',
   checkpointer: new MemorySaver(),
 });

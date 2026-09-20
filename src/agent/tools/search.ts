@@ -1,23 +1,15 @@
-import { tool } from 'langchain';
-import { z } from 'zod';
+/**
+ * search 工具的具体实现（纯函数，方便单元测试）
+ * 工具的 name/description/schema 声明统一在 index.ts 中管理
+ */
+export async function searchWeb(query: string): Promise<string> {
+  console.log(`\n[Tool] search called: "${query}"`);
 
-export const search = tool(
-  async ({ query }) => {
-    console.log(`\n[Tool] search called: "${query}"`);
-
-    if (
-      query.toLowerCase().includes('sf') ||
-      query.toLowerCase().includes('san francisco')
-    ) {
-      return "It's 60 degrees and foggy.";
-    }
-    return "It's 90 degrees and sunny.";
-  },
-  {
-    name: 'search',
-    description: 'Call to surf the web.',
-    schema: z.object({
-      query: z.string().describe('The query to use in your search.'),
-    }),
-  },
-);
+  if (
+    query.toLowerCase().includes('sf') ||
+    query.toLowerCase().includes('san francisco')
+  ) {
+    return "It's 60 degrees and foggy.";
+  }
+  return "It's 90 degrees and sunny.";
+}

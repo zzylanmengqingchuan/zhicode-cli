@@ -17,6 +17,9 @@ importers:
       '@langchain/openai':
         specifier: ^1.5.13
         version: 1.5.13(@langchain/core@1.2.11(openai@7.19.0(zod@4.6.5)))
+      '@langchain/tavily':
+        specifier: ^1.2.0
+        version: 1.2.0(@langchain/core@1.2.11(openai@7.19.0(zod@4.6.5)))
       commander:
         specifier: ^15.0.0
         version: 15.0.0
@@ -531,6 +534,12 @@ packages:
 
   '@langchain/protocol@0.0.19':
     resolution: {integrity: sha512-9hKcRrH7cBX6gfutdfXPoft1OCchHe4FEpALoDJMl5Qu+n/YG5ynZmyu8+8cxORlPwHBoKTxggvXz+76M1yX1Q==}
+
+  '@langchain/tavily@1.2.0':
+    resolution: {integrity: sha512-aPLPgtw8+b/Rnr3H+X8H8z98T/Y7JuCE4B5eqRDHoEWgZvMDUFF7divqwQqCTMq2deQttlVrm5bN5JbKaAR7/w==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@langchain/core': ^1.0.0
 
   '@napi-rs/wasm-runtime@1.2.4':
     resolution: {integrity: sha512-AJxoUD2/15ESHbvpcyjU274nsAPLuOtPHCk0vKJM5pj//Fg/B1FXNWjPnXTT9PymCYYiHo4zPj0ZomXBKhoy7g==}
@@ -2333,6 +2342,11 @@ snapshots:
       - ws
 
   '@langchain/protocol@0.0.19': {}
+
+  '@langchain/tavily@1.2.0(@langchain/core@1.2.11(openai@7.19.0(zod@4.6.5)))':
+    dependencies:
+      '@langchain/core': 1.2.11(openai@7.19.0(zod@4.6.5))
+      zod: 4.6.5
 
   '@napi-rs/wasm-runtime@1.2.4(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)':
     dependencies:
