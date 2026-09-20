@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto';
 import * as readline from 'node:readline';
-import { runAgentStream } from './agent.js';
+import chalk from 'chalk';
+import { modelContextLimit, runAgentStream } from './agent.js';
 import { showBanner } from './banner.js';
 import { createCommand } from './command.js';
 import { handleSlashCommand, type CommandContext } from './commands.js';
+import { formatContextUsage, isContextNearLimit } from './context-stats.js';
 
 // 每次启动生成新的会话 ID；历史记录由 agent.ts 的 checkpointer 按此 ID 持久化
 // 斜杠命令（如 /new）可通过 CommandContext 切换会话
@@ -43,7 +45,7 @@ async function chat(
   }
 
   try {
-    await runAgentStream(
+    const result = await runAgentStream(
       userInput,
       (token: string) => {
         process.stdout.write(token);
@@ -51,6 +53,14 @@ async function chat(
       ctx.getThreadId(),
       controller.signal,
     );
+    const max = await modelContextLimit();
+    console.log(chalk.gray(`\n${formatContextUsage(result.contextTokens, max)}`));
+    if (isContextNearLimit(result.contextTokens, max)) {
+      console.log(
+        chalk.yellow('⚠️  Context window 接近大模型接口上限，即将压缩 Context，可能会丢失信息'),
+      );
+      console.log(chalk.yellow('⚠️  建议输入 /new 命令开启新会话'));
+    }
   } catch (err) {
     if (!controller.signal.aborted) throw err;
     process.stdout.write('\n[已取消本次回复]');
