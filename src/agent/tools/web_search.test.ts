@@ -1,6 +1,6 @@
 import { config as loadEnv } from 'dotenv';
 import { webSearch } from './web_search';
-import { webSearchTool, tools } from './index';
+import { webSearchTool, tools } from '../tools';
 
 // 测试真实搜索需要 .env 里的 TAVILY_API_KEY
 loadEnv({ quiet: true });

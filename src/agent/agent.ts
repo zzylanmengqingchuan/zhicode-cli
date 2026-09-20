@@ -3,7 +3,8 @@ import { ChatOpenAI } from '@langchain/openai';
 import { createAgent } from 'langchain';
 import { MemorySaver } from '@langchain/langgraph';
 import { config as loadEnv } from 'dotenv';
-import { tools } from './tools/index.js';
+import { tools } from './tools.js';
+import { listSkills, skillsPrompt } from './skills.js';
 
 // 全局命令运行时没有 --env-file，这里兜底加载 .env（不覆盖已有环境变量）
 loadEnv({
@@ -26,10 +27,13 @@ const model = new ChatOpenAI({
 });
 
 // —— Agent 创建 —————————————————————————————————————————————
+// 启动时扫描 skills 目录，把 name/description 注入 system prompt，每次请求都会携带
+const skills = listSkills();
+
 export const agent = createAgent({
   model,
   tools,
-  systemPrompt: 'You are a helpful assistant.',
+  systemPrompt: `You are a helpful assistant.${skillsPrompt(skills)}`,
   checkpointer: new MemorySaver(),
 });
 

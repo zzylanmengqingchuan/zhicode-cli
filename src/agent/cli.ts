@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as readline from 'node:readline';
 import { runAgentStream } from './agent.js';
+import { showBanner } from './banner.js';
 import { createCommand } from './command.js';
 
 // 历史记录由 agent.ts 的 checkpointer 自动持久化，这里只需固定 thread_id
@@ -53,7 +54,7 @@ export async function startChat(): Promise<void> {
     output: process.stdout,
   });
 
-  console.log('ReAct Agent 已启动，输入 exit 退出\n');
+  showBanner();
 
   rl.setPrompt('你: ');
   rl.prompt();

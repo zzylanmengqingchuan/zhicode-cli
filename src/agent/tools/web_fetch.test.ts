@@ -1,5 +1,5 @@
 import { webFetch, htmlToText } from './web_fetch';
-import { webFetchTool, tools } from './index';
+import { webFetchTool, tools } from '../tools';
 
 describe('htmlToText 实现', () => {
   it('去掉 HTML 标签保留文本', () => {

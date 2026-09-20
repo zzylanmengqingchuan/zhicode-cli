@@ -1,5 +1,5 @@
 import { readLocalFile } from './read_file';
-import { readFile, tools } from './index';
+import { readFile, tools } from '../tools';
 
 describe('readLocalFile 实现', () => {
   it('能读取当前目录下的文件', async () => {

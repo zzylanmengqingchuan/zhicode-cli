@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "tsx --env-file=.env src/agent/cli.ts",
-    "build": "tsc",
+    "build": "tsc && rm -rf dist/src/agent/skills && cp -r src/agent/skills dist/src/agent/skills && chmod +x dist/src/agent/cli.js",
     "start": "node --env-file=.env dist/src/agent/cli.js",
     "typecheck": "tsc --noEmit",
     "test": "jest",
@@ -17,9 +17,11 @@
     "test:coverage": "jest --coverage"
   },
   "keywords": [],
-  "author": "",
+  "author": "zzylanmengqingchuan",
+  "docs": "https://github.com/zzylanmengqingchuan/zhicode-cli",
   "license": "ISC",
   "devDependencies": {
+    "@types/figlet": "^1.7.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.6.2",
     "jest": "^30.5.2",
@@ -32,8 +34,11 @@
     "@langchain/langgraph": "^1.4.16",
     "@langchain/openai": "^1.5.13",
     "@langchain/tavily": "^1.2.0",
+    "boxen": "^5.1.2",
+    "chalk": "^4.1.2",
     "commander": "^15.0.0",
     "dotenv": "^18.0.1",
+    "figlet": "^1.11.4",
     "langchain": "^1.5.11",
     "zod": "^4.6.5"
   }

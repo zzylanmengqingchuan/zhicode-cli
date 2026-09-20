@@ -1,5 +1,5 @@
 import { execCommand } from './exec';
-import { execTool, tools } from './index';
+import { execTool, tools } from '../tools';
 
 describe('execCommand 实现', () => {
   it('能执行普通命令并返回输出', async () => {

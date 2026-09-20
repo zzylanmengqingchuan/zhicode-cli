@@ -1,5 +1,5 @@
 import { searchWeb } from './search';
-import { search, tools } from './index';
+import { search, tools } from '../tools';
 
 describe('searchWeb 实现', () => {
   it('查询包含 sf 时返回旧金山雾天', async () => {

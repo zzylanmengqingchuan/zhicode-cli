@@ -1,12 +1,14 @@
 import { tool } from 'langchain';
 import { z } from 'zod';
-import { searchWeb } from './search.js';
-import { readLocalFile } from './read_file.js';
-import { writeLocalFile } from './write_file.js';
-import { execCommand } from './exec.js';
-import { runJs } from './run_js.js';
-import { webSearch } from './web_search.js';
-import { webFetch } from './web_fetch.js';
+import { searchWeb } from './tools/search.js';
+import { readLocalFile } from './tools/read_file.js';
+import { writeLocalFile } from './tools/write_file.js';
+import { execCommand } from './tools/exec.js';
+import { runJs } from './tools/run_js.js';
+import { runPy } from './tools/run_py.js';
+import { webSearch } from './tools/web_search.js';
+import { webFetch } from './tools/web_fetch.js';
+import { loadSkillContent } from './tools/load_skill.js';
 
 /**
  * 工具注册中心：统一声明每个工具的 name / description / schema，
@@ -90,4 +92,36 @@ export const webFetchTool = tool(
   },
 );
 
-export const tools = [search, readFile, writeFile, execTool, runJsTool, webSearchTool, webFetchTool];
+export const loadSkillTool = tool(
+  async ({ name }) => loadSkillContent(name),
+  {
+    name: 'load_skill',
+    description: '加载指定 skill 的完整内容（SKILL.md），每次只能加载一个',
+    schema: z.object({
+      name: z.string().describe('要加载的 skill 名称'),
+    }),
+  },
+);
+
+export const runPyTool = tool(
+  async ({ code }) => runPy(code),
+  {
+    name: 'run_py',
+    description: '使用 python3 执行一段 Python 代码，返回执行结果或报错信息',
+    schema: z.object({
+      code: z.string().describe('要执行的 Python 代码'),
+    }),
+  },
+);
+
+export const tools = [
+  search,
+  readFile,
+  writeFile,
+  execTool,
+  runJsTool,
+  runPyTool,
+  webSearchTool,
+  webFetchTool,
+  loadSkillTool,
+];

@@ -1,5 +1,5 @@
 import { runJs } from './run_js';
-import { runJsTool, tools } from './index';
+import { runJsTool, tools } from '../tools';
 
 describe('runJs 实现', () => {
   it('能执行 JS 代码并返回输出', async () => {

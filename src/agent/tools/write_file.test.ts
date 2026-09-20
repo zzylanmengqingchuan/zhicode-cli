@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { writeLocalFile } from './write_file';
-import { writeFile, tools } from './index';
+import { writeFile, tools } from '../tools';
 
 const TMP_DIR = path.join(process.cwd(), 'tmp-tool-test');
 
