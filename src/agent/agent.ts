@@ -1,7 +1,19 @@
+import * as path from 'node:path';
 import { ChatOpenAI } from '@langchain/openai';
 import { createAgent, tool } from 'langchain';
 import { MemorySaver } from '@langchain/langgraph';
+import { config as loadEnv } from 'dotenv';
 import { z } from 'zod';
+
+// 全局命令运行时没有 --env-file，这里兜底加载 .env（不覆盖已有环境变量）
+loadEnv({
+  quiet: true,
+  path: [
+    path.resolve(__dirname, '../../.env'),
+    path.resolve(__dirname, '../../../.env'),
+    path.resolve(process.cwd(), '.env'),
+  ],
+});
 
 // —— 工具定义 ————————————————————————————————————————————————
 const search = tool(

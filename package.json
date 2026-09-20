@@ -1,9 +1,12 @@
 {
-  "name": "npm-cli",
+  "name": "zzycli",
   "version": "1.0.0",
-  "description": "",
+  "description": "AI 命令行聊天工具，基于 Kimi 大模型 + LangChain ReAct Agent",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "zzycli": "dist/src/agent/cli.js"
+  },
   "scripts": {
     "dev": "tsx --env-file=.env src/agent/cli.ts",
     "build": "tsc",
@@ -28,6 +31,8 @@
     "@langchain/core": "^1.2.11",
     "@langchain/langgraph": "^1.4.16",
     "@langchain/openai": "^1.5.13",
+    "commander": "^15.0.0",
+    "dotenv": "^18.0.1",
     "langchain": "^1.5.11",
     "zod": "^4.6.5"
   }
