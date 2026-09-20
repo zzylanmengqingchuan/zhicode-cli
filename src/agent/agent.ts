@@ -1,9 +1,9 @@
 import * as path from 'node:path';
 import { ChatOpenAI } from '@langchain/openai';
-import { createAgent, tool } from 'langchain';
+import { createAgent } from 'langchain';
 import { MemorySaver } from '@langchain/langgraph';
 import { config as loadEnv } from 'dotenv';
-import { z } from 'zod';
+import { search } from './tools/search.js';
 
 // 全局命令运行时没有 --env-file，这里兜底加载 .env（不覆盖已有环境变量）
 loadEnv({
@@ -14,28 +14,6 @@ loadEnv({
     path.resolve(process.cwd(), '.env'),
   ],
 });
-
-// —— 工具定义 ————————————————————————————————————————————————
-const search = tool(
-  async ({ query }) => {
-    console.log(`\n[Tool] search called: "${query}"`);
-
-    if (
-      query.toLowerCase().includes('sf') ||
-      query.toLowerCase().includes('san francisco')
-    ) {
-      return "It's 60 degrees and foggy.";
-    }
-    return "It's 90 degrees and sunny.";
-  },
-  {
-    name: 'search',
-    description: 'Call to surf the web.',
-    schema: z.object({
-      query: z.string().describe('The query to use in your search.'),
-    }),
-  },
-);
 
 // —— 模型 ———————————————————————————————————————————————————
 const model = new ChatOpenAI({
