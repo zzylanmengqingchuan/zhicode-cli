@@ -1,7 +1,8 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ChatOpenAI } from '@langchain/openai';
 import { createAgent } from 'langchain';
-import { MemorySaver } from '@langchain/langgraph';
+import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
 import { config as loadEnv } from 'dotenv';
 import { tools } from './tools.js';
 import { listSkills, skillsPrompt } from './skills.js';
@@ -30,11 +31,16 @@ const model = new ChatOpenAI({
 // 启动时扫描 skills 目录，把 name/description 注入 system prompt，每次请求都会携带
 const skills = listSkills();
 
+// 聊天记录持久化到当前目录的 .data/checkpointer.db，进程重启后记忆仍在
+const DATA_DIR = path.resolve(process.cwd(), '.data');
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const checkpointer = SqliteSaver.fromConnString(path.join(DATA_DIR, 'checkpointer.db'));
+
 export const agent = createAgent({
   model,
   tools,
   systemPrompt: `You are a helpful assistant.${skillsPrompt(skills)}`,
-  checkpointer: new MemorySaver(),
+  checkpointer,
 });
 
 export async function runAgent(

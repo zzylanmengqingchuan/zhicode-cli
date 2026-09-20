@@ -1,11 +1,12 @@
 #!/usr/bin/env node
+import { randomUUID } from 'node:crypto';
 import * as readline from 'node:readline';
 import { runAgentStream } from './agent.js';
 import { showBanner } from './banner.js';
 import { createCommand } from './command.js';
 
-// 历史记录由 agent.ts 的 checkpointer 自动持久化，这里只需固定 thread_id
-const THREAD_ID = 'user-session-1';
+// 每次启动生成新的会话 ID；历史记录由 agent.ts 的 checkpointer 按此 ID 持久化
+const THREAD_ID = `session-${randomUUID()}`;
 
 async function chat(rl: readline.Interface, userInput: string): Promise<void> {
   const isTTY = process.stdin.isTTY;
