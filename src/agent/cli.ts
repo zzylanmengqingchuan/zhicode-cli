@@ -2,10 +2,11 @@
 import { randomUUID } from 'node:crypto';
 import * as readline from 'node:readline';
 import chalk from 'chalk';
-import { modelContextLimit, runAgentStream } from './agent.js';
+import { compressContext, modelContextLimit, runAgentStream } from './agent.js';
 import { showBanner } from './banner.js';
 import { createCommand } from './command.js';
 import { handleSlashCommand, type CommandContext } from './commands.js';
+import { KEEP_RECENT_MESSAGES } from './context.js';
 import { formatContextUsage, isContextNearLimit } from './context-stats.js';
 
 // 每次启动生成新的会话 ID；历史记录由 agent.ts 的 checkpointer 按此 ID 持久化
@@ -57,9 +58,23 @@ async function chat(
     console.log(chalk.gray(`\n${formatContextUsage(result.contextTokens, max)}`));
     if (isContextNearLimit(result.contextTokens, max)) {
       console.log(
-        chalk.yellow('⚠️  Context window 接近大模型接口上限，即将压缩 Context，可能会丢失信息'),
+        chalk.yellow('⚠️  Context 已达到 80%，正在压缩上下文（可能丢失部分细节）...'),
       );
-      console.log(chalk.yellow('⚠️  建议输入 /new 命令开启新会话'));
+      const outcome = await compressContext(ctx.getThreadId());
+      if (outcome) {
+        console.log(
+          chalk.green(
+            `✅ 已将 ${outcome.compressedMessages} 条历史消息压缩为摘要（第 ${outcome.compressionCount} 次压缩），最近 ${KEEP_RECENT_MESSAGES} 条消息保持原样`,
+          ),
+        );
+        if (outcome.compressionCount >= 3) {
+          console.log(
+            chalk.red('⚠️  已累计压缩 3 次以上，信息损失风险较高，强烈建议输入 /new 开启新会话'),
+          );
+        }
+      } else {
+        console.log(chalk.yellow('暂无可压缩的历史消息（最近几条消息会保留不压缩）'));
+      }
     }
   } catch (err) {
     if (!controller.signal.aborted) throw err;

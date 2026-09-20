@@ -64,4 +64,12 @@ describe('斜杠命令', () => {
     spy.mockRestore();
     expect(ctx.getThreadId()).toBe('session-test-1'); // 未改变
   });
+
+  it('/compact 在空会话上提示暂无可压缩内容', async () => {
+    const ctx = makeCtx();
+    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    expect(await handleSlashCommand('/compact', ctx)).toBe(true);
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining('压缩'));
+    spy.mockRestore();
+  });
 });

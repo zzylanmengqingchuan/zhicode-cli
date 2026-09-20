@@ -15,11 +15,9 @@ describe('loadSkillContent 实现', () => {
     expect(content).toContain('程序员简历');
   });
 
-  it('加载时会打印 skill 名称', async () => {
-    const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
-    await loadSkillContent('planner');
-    expect(spy).toHaveBeenCalledWith(expect.stringContaining('planner'));
-    spy.mockRestore();
+  it('加载时会打印 skill 名称（打印已统一到 toolNode，此处只验证内容）', async () => {
+    const content = await loadSkillContent('planner');
+    expect(content).toContain('计划制定指南');
   });
 
   it('skill 不存在时报错并列出可用 skill', async () => {

@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import Table from 'cli-table3';
+import { compressContext } from './agent.js';
+import { KEEP_RECENT_MESSAGES } from './context.js';
 import { formatRelativeTime, listSessions, sessionExists } from './sessions.js';
 
 /**
@@ -97,5 +99,25 @@ registerCommand({
     }
     ctx.setThreadId(threadId);
     console.log(`已恢复到会话: ${threadId}`);
+  },
+});
+
+registerCommand({
+  name: 'compact',
+  usage: '/compact',
+  description: `立即压缩当前会话的 Context（保留最近 ${KEEP_RECENT_MESSAGES} 条消息）`,
+  run: async (_args, ctx) => {
+    console.log('正在压缩 Context...');
+    const outcome = await compressContext(ctx.getThreadId());
+    if (!outcome) {
+      console.log(`暂无可压缩的历史消息（最近 ${KEEP_RECENT_MESSAGES} 条消息会保留不压缩）`);
+      return;
+    }
+    console.log(
+      `✅ 已将 ${outcome.compressedMessages} 条历史消息压缩为摘要（第 ${outcome.compressionCount} 次压缩）`,
+    );
+    if (outcome.compressionCount >= 3) {
+      console.log('⚠️  已累计压缩 3 次以上，信息损失风险较高，强烈建议输入 /new 开启新会话');
+    }
   },
 });

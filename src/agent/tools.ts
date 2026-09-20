@@ -1,5 +1,7 @@
 import { tool } from 'langchain';
 import { z } from 'zod';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import { searchWeb } from './tools/search.js';
 import { readLocalFile } from './tools/read_file.js';
 import { writeLocalFile } from './tools/write_file.js';
@@ -125,3 +127,34 @@ export const tools = [
   webFetchTool,
   loadSkillTool,
 ];
+
+// —— 工具输出过大时的落盘处理 ————————————————————————————————
+
+const MAX_INLINE_OUTPUT = 50000;
+const PREVIEW_LENGTH = 2000;
+
+/**
+ * 工具输出超长时把完整内容写入 ./tool_output/ 文件，
+ * 返回给模型的内容替换为「文件路径 + 前 2000 字预览」，避免撑爆 Context
+ */
+export async function maybePersistedOutput(
+  content: string,
+  toolCallId: string,
+): Promise<string> {
+  if (content.length <= MAX_INLINE_OUTPUT) return content;
+
+  const dir = path.resolve(process.cwd(), 'tool_output');
+  await fs.mkdir(dir, { recursive: true });
+  const filePath = path.join(dir, `tool_output_${toolCallId}.txt`);
+  await fs.writeFile(filePath, content, 'utf-8');
+
+  return `<persisted-output>
+Output too large (${(content.length / 1024).toFixed(1)}KB).
+Full output saved to: ${filePath}
+If you need the complete content, it is recommended to read it in segments
+
+Preview (first 2KB):
+${content.slice(0, PREVIEW_LENGTH)}
+...
+</persisted-output>`;
+}

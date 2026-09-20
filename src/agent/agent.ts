@@ -1,12 +1,28 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ChatOpenAI } from '@langchain/openai';
-import { createAgent } from 'langchain';
+import {
+  Annotation,
+  END,
+  START,
+  StateGraph,
+  messagesStateReducer,
+  type CompiledStateGraph,
+} from '@langchain/langgraph';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
+import {
+  AIMessage,
+  HumanMessage,
+  SystemMessage,
+  ToolMessage,
+  type BaseMessage,
+  type UsageMetadata,
+} from '@langchain/core/messages';
 import { config as loadEnv } from 'dotenv';
-import { tools } from './tools.js';
+import { maybePersistedOutput, tools } from './tools.js';
 import { listSkills, skillsPrompt } from './skills.js';
 import { getModelContextLimit } from './context-stats.js';
+import { compressionRange, formatMessagesForCompression } from './context.js';
 
 // 全局命令运行时没有 --env-file，这里兜底加载 .env（不覆盖已有环境变量）
 loadEnv({
@@ -19,8 +35,8 @@ loadEnv({
 });
 
 // —— 模型 ———————————————————————————————————————————————————
-const MODEL_NAME = 'kimi-k2.6';
-const MODEL_BASE_URL = 'https://api.moonshot.cn/v1';
+export const MODEL_NAME = 'kimi-k2.6';
+export const MODEL_BASE_URL = 'https://api.moonshot.cn/v1';
 
 const model = new ChatOpenAI({
   model: MODEL_NAME,
@@ -31,6 +47,8 @@ const model = new ChatOpenAI({
   streaming: true,
 });
 
+const modelWithTools = model.bindTools(tools);
+
 /**
  * 当前模型的最大上下文 token 数（动态查询模型服务方接口，带缓存）
  */
@@ -38,33 +56,156 @@ export function modelContextLimit(): Promise<number | null> {
   return getModelContextLimit(MODEL_NAME, process.env.MOONSHOT_API_KEY, MODEL_BASE_URL);
 }
 
-// —— Agent 创建 —————————————————————————————————————————————
+// —— Skills —————————————————————————————————————————————————
 // 启动时扫描 skills 目录，把 name/description 注入 system prompt，每次请求都会携带
 const skills = listSkills();
+const systemPrompt = `You are a helpful assistant.${skillsPrompt(skills)}`;
 
+// —— State 定义 —————————————————————————————————————————————
+// messages：完整的聊天记录（由 checkpointer 持久化，永不修改）
+// llmInputMessages：手动指定的下一轮 LLM 输入（整体替换，优先级最高）
+// summary / compressedUpTo / compressionCount：Context 压缩状态
+//   summary 是前 compressedUpTo 条消息的摘要；modelRequest 动态拼
+//   「摘要 + messages[compressedUpTo:]」发给 LLM，新消息自动进入上下文
+const StateAnnotation = Annotation.Root({
+  messages: Annotation<BaseMessage[]>({
+    reducer: messagesStateReducer,
+    default: () => [],
+  }),
+  llmInputMessages: Annotation<BaseMessage[]>({
+    // 写入即整体替换，不走追加
+    reducer: (_, update) => messagesStateReducer([], update),
+    default: () => [],
+  }),
+  summary: Annotation<string>({
+    reducer: (_, next) => next,
+    default: () => '',
+  }),
+  compressedUpTo: Annotation<number>({
+    reducer: (_, next) => next,
+    default: () => 0,
+  }),
+  compressionCount: Annotation<number>({
+    reducer: (_, next) => next,
+    default: () => 0,
+  }),
+});
+
+type AgentState = typeof StateAnnotation.State;
+
+export const SUMMARY_PREFIX = '【对话历史摘要】';
+
+function getModelInputMessages(state: AgentState): BaseMessage[] {
+  if (state.llmInputMessages != null && state.llmInputMessages.length > 0) {
+    return state.llmInputMessages;
+  }
+  if (state.summary && state.compressedUpTo > 0) {
+    return [
+      new SystemMessage(
+        `${SUMMARY_PREFIX}以下是之前对话的压缩摘要，回答时请将其作为已知上下文：\n${state.summary}`,
+      ),
+      ...state.messages.slice(state.compressedUpTo),
+    ];
+  }
+  return state.messages;
+}
+
+// —— Graph 节点 —————————————————————————————————————————————
+async function modelRequest(
+  state: AgentState,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  config: any,
+): Promise<Partial<AgentState>> {
+  const messages = [new SystemMessage(systemPrompt), ...getModelInputMessages(state)];
+  const response = await modelWithTools.invoke(messages, config);
+  return { messages: [response] };
+}
+
+function shouldContinue(state: AgentState): 'tools' | typeof END {
+  const lastMessage = state.messages[state.messages.length - 1];
+  if (AIMessage.isInstance(lastMessage) && lastMessage.tool_calls?.length) {
+    return 'tools';
+  }
+  return END;
+}
+
+async function toolNode(
+  state: AgentState,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  config: any,
+): Promise<Partial<AgentState>> {
+  const messages = state.messages;
+  const toolMessageIds = new Set(
+    messages
+      .filter((msg) => msg.type === 'tool')
+      .map((msg) => (msg as ToolMessage).tool_call_id),
+  );
+
+  let aiMessage: BaseMessage | undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (AIMessage.isInstance(messages[i])) {
+      aiMessage = messages[i];
+      break;
+    }
+  }
+  if (!aiMessage || !AIMessage.isInstance(aiMessage)) {
+    throw new Error('toolNode 只接受最后一条消息为 AIMessage 的状态');
+  }
+
+  // 只执行还没有对应 ToolMessage 的工具调用
+  const toolCalls =
+    aiMessage.tool_calls?.filter((call) => call.id == null || !toolMessageIds.has(call.id)) ??
+    [];
+
+  const outputs = await Promise.all(
+    toolCalls.map(async (call) => {
+      // 统一在工具调用前打印日志（各工具实现内不再自行打印）
+      console.log(`\n[Tool] ${call.name}`);
+      const tool = tools.find((t) => t.name === call.name);
+      try {
+        if (!tool) throw new Error(`工具 "${call.name}" 不存在`);
+        const output = await (
+          tool as { invoke: (input: unknown, config?: unknown) => Promise<unknown> }
+        ).invoke({ ...call, type: 'tool_call' }, config);
+        const raw = typeof output === 'string' ? output : JSON.stringify(output);
+        const content = await maybePersistedOutput(raw, call.id ?? 'unknown');
+        return new ToolMessage({ content, tool_call_id: call.id ?? '', name: call.name });
+      } catch (err) {
+        return new ToolMessage({
+          content: `Error: ${err instanceof Error ? err.message : String(err)}\n请修正后重试。`,
+          tool_call_id: call.id ?? '',
+          name: call.name,
+        });
+      }
+    }),
+  );
+
+  return { messages: outputs };
+}
+
+// —— 记忆 ———————————————————————————————————————————————————
 // 聊天记录持久化到当前目录的 .data/checkpointer.db，进程重启后记忆仍在
 const DATA_DIR = path.resolve(process.cwd(), '.data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const checkpointer = SqliteSaver.fromConnString(path.join(DATA_DIR, 'checkpointer.db'));
 
-export const agent = createAgent({
-  model,
-  tools,
-  systemPrompt: `You are a helpful assistant.${skillsPrompt(skills)}`,
-  checkpointer,
-});
+// —— Agent Graph ————————————————————————————————————————————
+// 流程：START → model_request →（有工具调用 → tools → 回到 model_request）/（无 → END）
+const workflow = new StateGraph(StateAnnotation)
+  .addNode('model_request', modelRequest)
+  .addNode('tools', toolNode)
+  .addEdge(START, 'model_request')
+  .addConditionalEdges('model_request', shouldContinue, {
+    tools: 'tools',
+    [END]: END,
+  })
+  .addEdge('tools', 'model_request');
 
-export async function runAgent(
-  userMessage: string,
-  threadId: string = 'default-session',
-): Promise<string> {
-  const result = await agent.invoke(
-    { messages: [{ role: 'user', content: userMessage }] },
-    { configurable: { thread_id: threadId } },
-  );
-  const last = result.messages[result.messages.length - 1];
-  return typeof last.content === 'string' ? last.content : JSON.stringify(last.content);
-}
+export const agent = workflow.compile({ checkpointer }) as CompiledStateGraph<
+  unknown,
+  unknown,
+  string
+>;
 
 export interface AgentStreamResult {
   text: string;
@@ -89,17 +230,27 @@ export async function runAgentStream(
   const config = { configurable: { thread_id: threadId }, signal };
 
   const stream = await agent.stream(
-    { messages: [{ role: 'user', content: userMessage }] },
+    { messages: [new HumanMessage(userMessage)] },
     { ...config, streamMode: 'messages' },
   );
 
   let fullResponse = '';
+  let usageMetadata: UsageMetadata | undefined;
 
   for await (const chunk of stream as AsyncIterable<[unknown, Record<string, unknown>]>) {
+    if (signal?.aborted) {
+      throw new Error('本次请求已被取消');
+    }
+
     const message = chunk[0];
     const metadata = chunk[1];
 
     if (metadata?.langgraph_node !== 'model_request') continue;
+
+    const chunkUsage = (message as { usage_metadata?: UsageMetadata }).usage_metadata;
+    if (chunkUsage) {
+      usageMetadata = chunkUsage;
+    }
 
     // AIMessageChunk 的 content 在 message.content 属性上，不在 kwargs.content
     const content: string =
@@ -115,18 +266,78 @@ export async function runAgentStream(
     fullResponse += content;
   }
 
-  // 从最终状态里取最后一条带 usage_metadata 的消息，input_tokens 即模型实际收到的上下文 token 数
-  let contextTokens: number | null = null;
-  try {
-    const state = (await agent.getState({
-      configurable: { thread_id: threadId },
-    })) as { values?: { messages?: { usage_metadata?: { input_tokens?: number } }[] } };
-    const messages = state.values?.messages ?? [];
-    const lastWithUsage = [...messages].reverse().find((m) => m.usage_metadata);
-    contextTokens = lastWithUsage?.usage_metadata?.input_tokens ?? null;
-  } catch {
-    contextTokens = null;
-  }
+  return { text: fullResponse, contextTokens: usageMetadata?.input_tokens ?? null };
+}
 
-  return { text: fullResponse, contextTokens };
+// —— Context 压缩（agent 核心能力） —————————————————————————
+
+/**
+ * 调用 AI 把「已有摘要 + 新对话内容」合并压缩成一份新摘要
+ */
+async function summarize(existingSummary: string, newContent: string): Promise<string> {
+  const response = await model.invoke([
+    new SystemMessage(
+      '你在为一个 AI 助手压缩对话历史。把对话压缩成简洁摘要，保留关键信息：用户身份与偏好、已完成的任务、重要结论、待办事项；删除寒暄与冗余。输出纯文本摘要，不超过 500 字。',
+    ),
+    new HumanMessage(
+      `【已有摘要】（可能为空）\n${existingSummary || '（无）'}\n\n【需要新压缩的对话】\n${newContent}\n\n请输出合并后的完整摘要（把已有摘要与新内容合并去重，而不是分开罗列）。`,
+    ),
+  ]);
+
+  return typeof response.content === 'string'
+    ? response.content
+    : JSON.stringify(response.content);
+}
+
+export interface CompressOutcome {
+  /** 本轮新压缩的消息条数 */
+  compressedMessages: number;
+  /** 累计压缩次数（含本次） */
+  compressionCount: number;
+  /** 压缩后的完整摘要 */
+  summary: string;
+}
+
+interface CompressibleState {
+  messages?: BaseMessage[];
+  summary?: string;
+  compressedUpTo?: number;
+  compressionCount?: number;
+}
+
+/**
+ * 压缩指定会话的 Context：
+ * 把 messages 中「已压缩位置之后、最近 6 条之前」的消息调用 AI 总结，
+ * 摘要写回 agent state（不动 messages 原始记录），供下一轮对话使用。
+ * 没有新内容可压缩时返回 null。
+ */
+export async function compressContext(threadId: string): Promise<CompressOutcome | null> {
+  const config = { configurable: { thread_id: threadId } };
+  const state = (await agent.getState(config)) as { values?: CompressibleState };
+  const values = state.values ?? {};
+
+  const messages = values.messages ?? [];
+  const compressedUpTo = values.compressedUpTo ?? 0;
+  const compressionCount = values.compressionCount ?? 0;
+
+  const range = compressionRange(messages.length, compressedUpTo);
+  if (!range) return null;
+
+  const toCompress = messages.slice(range.start, range.end);
+  const summary = await summarize(
+    values.summary ?? '',
+    formatMessagesForCompression(toCompress),
+  );
+
+  await agent.updateState(config, {
+    summary,
+    compressedUpTo: range.end,
+    compressionCount: compressionCount + 1,
+  });
+
+  return {
+    compressedMessages: toCompress.length,
+    compressionCount: compressionCount + 1,
+    summary,
+  };
 }

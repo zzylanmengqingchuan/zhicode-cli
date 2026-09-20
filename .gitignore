@@ -6,4 +6,5 @@ coverage/
 .DS_Store
 tmp-tool-test/
 tmp-sessions-test/
+tool_output/
 .data/
