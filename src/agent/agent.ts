@@ -30,7 +30,10 @@ import {
   simplifyToolMessages,
 } from './context.js';
 import { DB_PATH, initDb } from './db.js';
-import { evaluateToolPermission } from './permission/index.js';
+import { evaluateReadPermission } from './permission/read.js';
+import { evaluateWritePermission } from './permission/write.js';
+import { evaluateExecPermission } from './permission/exec.js';
+import { evaluateNetworkPermission } from './permission/network.js';
 
 // 全局命令运行时没有 --env-file，这里兜底加载 .env（不覆盖已有环境变量）
 loadEnv({
@@ -136,6 +139,20 @@ function shouldContinue(state: AgentState): 'tools' | typeof END {
   return END;
 }
 
+// 按工具的 permission_level 分发到对应的权限判定（read/write/exec 各自独立实现）
+function evaluatePermission(
+  toolName: string,
+  args: unknown,
+): { action: 'allow' | 'confirm' | 'block'; filepath?: string; reason?: string } {
+  const tool = tools.find((t) => t.name === toolName);
+  const level = (tool as { permission_level?: string } | undefined)?.permission_level;
+  if (level === 'read') return evaluateReadPermission(args);
+  if (level === 'write') return evaluateWritePermission(args);
+  if (level === 'exec') return evaluateExecPermission(args);
+  if (level === 'network') return evaluateNetworkPermission(args);
+  return { action: 'confirm' };
+}
+
 async function toolNode(
   state: AgentState,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -167,11 +184,13 @@ async function toolNode(
   const outputs: ToolMessage[] = [];
   for (const call of toolCalls) {
     // 权限判定：危险路径直接阻止；安全场景直接执行；其余需要用户确认
-    const perm = evaluateToolPermission(call.name, call.args);
+    const perm = evaluatePermission(call.name, call.args);
     if (perm.action === 'block') {
       outputs.push(
         new ToolMessage({
-          content: `操作已被安全策略阻止：路径 ${perm.filepath} 属于系统敏感目录，不能访问。请改用项目目录内的路径。`,
+          content:
+            perm.reason ??
+            `操作已被安全策略阻止：路径 ${perm.filepath} 属于系统敏感目录，不能访问。请改用项目目录内的路径。`,
           tool_call_id: call.id ?? '',
           name: call.name,
         }),
