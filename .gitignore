@@ -6,5 +6,11 @@ coverage/
 .DS_Store
 tmp-tool-test/
 tmp-sessions-test/
+tmp-db-test/
 tool_output/
 .data/
+tmp-prompt-test/
+tmp-memory-create-test/
+tmp-memory-retrieve-test/
+tmp-memory-delete-test/
+tmp-profile-test/

@@ -11,6 +11,10 @@ import { runPy } from './tools/run_py.js';
 import { webSearch } from './tools/web_search.js';
 import { webFetch } from './tools/web_fetch.js';
 import { loadSkillContent } from './tools/load_skill.js';
+import { createMemory } from './tools/memory_create.js';
+import { retrieveMemories } from './tools/memory_retrieve.js';
+import { deleteMemory } from './tools/memory_delete.js';
+import { updateProfile } from './tools/profile_update.js';
 
 /**
  * 工具注册中心：统一声明每个工具的 name / description / schema，
@@ -116,6 +120,60 @@ export const runPyTool = tool(
   },
 );
 
+export const memoryCreateTool = tool(
+  async ({ type, content, keywords, importance }, config) => {
+    const sessionId = (config as { configurable?: { thread_id?: string } } | undefined)
+      ?.configurable?.thread_id;
+    return createMemory({ type, content, keywords, importance, sessionId });
+  },
+  {
+    name: 'memory_create',
+    description:
+      '当用户分享了值得长期记住的信息时存储一条记忆，例如偏好（preference）、事实（fact）、事件（event）、技能（skill）',
+    schema: z.object({
+      type: z.enum(['fact', 'event', 'preference', 'skill']).describe('记忆类型'),
+      content: z.string().describe('自然语言描述的记忆内容，方便拼进 prompt'),
+      keywords: z.array(z.string()).optional().describe('用于检索的关键词'),
+      importance: z.number().min(1).max(5).optional().describe('重要程度 1~5，默认 3'),
+    }),
+  },
+);
+
+export const memoryRetrieveTool = tool(
+  async ({ keywords }) => retrieveMemories(keywords),
+  {
+    name: 'memory_retrieve',
+    description:
+      '当用户的问题涉及过去的记忆而当前对话中没有相关信息时，提炼关键词调用此工具检索长期记忆',
+    schema: z.object({
+      keywords: z.array(z.string()).describe('用于检索记忆的关键词列表'),
+    }),
+  },
+);
+
+export const memoryDeleteTool = tool(
+  async ({ id }) => deleteMemory(id),
+  {
+    name: 'memory_delete',
+    description: '当用户想要删除或遗忘某条记忆时，按 id 删除该记忆（id 可通过 memory_retrieve 检索结果获得）',
+    schema: z.object({
+      id: z.number().describe('要删除的记忆 id'),
+    }),
+  },
+);
+
+export const profileUpdateTool = tool(
+  async ({ content }) => updateProfile(content),
+  {
+    name: 'profile_update',
+    description:
+      '更新用户画像（profile）。更新时必须保留 <profile_info> 中提到的其他已有信息，所有 profile 信息一起全量更新',
+    schema: z.object({
+      content: z.string().describe('完整的用户画像内容（全量，不是增量）'),
+    }),
+  },
+);
+
 export const tools = [
   search,
   readFile,
@@ -126,6 +184,10 @@ export const tools = [
   webSearchTool,
   webFetchTool,
   loadSkillTool,
+  memoryCreateTool,
+  memoryRetrieveTool,
+  memoryDeleteTool,
+  profileUpdateTool,
 ];
 
 // —— 工具输出过大时的落盘处理 ————————————————————————————————

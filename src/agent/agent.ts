@@ -1,4 +1,3 @@
-import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { ChatOpenAI } from '@langchain/openai';
 import {
@@ -20,7 +19,7 @@ import {
 } from '@langchain/core/messages';
 import { config as loadEnv } from 'dotenv';
 import { maybePersistedOutput, tools } from './tools.js';
-import { listSkills, skillsPrompt } from './skills.js';
+import { buildSystemPrompt } from './prompt.js';
 import { getModelContextLimit } from './context-stats.js';
 import {
   capMessages,
@@ -28,6 +27,7 @@ import {
   formatMessagesForCompression,
   simplifyToolMessages,
 } from './context.js';
+import { DB_PATH, initDb } from './db.js';
 
 // 全局命令运行时没有 --env-file，这里兜底加载 .env（不覆盖已有环境变量）
 loadEnv({
@@ -61,10 +61,9 @@ export function modelContextLimit(): Promise<number | null> {
   return getModelContextLimit(MODEL_NAME, process.env.MOONSHOT_API_KEY, MODEL_BASE_URL);
 }
 
-// —— Skills —————————————————————————————————————————————————
-// 启动时扫描 skills 目录，把 name/description 注入 system prompt，每次请求都会携带
-const skills = listSkills();
-const systemPrompt = `You are a helpful assistant.${skillsPrompt(skills)}`;
+// —— Prompt 组装 ————————————————————————————————————————————
+// 顺序：基础人设 → 用户画像（模板+.data/profile.md 实际信息）→ （memoryPrompt 预留）→ skills
+const systemPrompt = buildSystemPrompt();
 
 // —— State 定义 —————————————————————————————————————————————
 // messages：完整的聊天记录（由 checkpointer 持久化，永不修改）
@@ -190,9 +189,9 @@ async function toolNode(
 
 // —— 记忆 ———————————————————————————————————————————————————
 // 聊天记录持久化到当前目录的 .data/checkpointer.db，进程重启后记忆仍在
-const DATA_DIR = path.resolve(process.cwd(), '.data');
-fs.mkdirSync(DATA_DIR, { recursive: true });
-const checkpointer = SqliteSaver.fromConnString(path.join(DATA_DIR, 'checkpointer.db'));
+// 启动时初始化数据库表（memory 等），已存在则跳过
+initDb();
+const checkpointer = SqliteSaver.fromConnString(DB_PATH);
 
 // —— Agent Graph ————————————————————————————————————————————
 // 流程：START → model_request →（有工具调用 → tools → 回到 model_request）/（无 → END）
