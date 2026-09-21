@@ -15,3 +15,4 @@ tmp-memory-retrieve-test/
 tmp-memory-delete-test/
 tmp-profile-test/
 src/memory_search.js
+tools.log

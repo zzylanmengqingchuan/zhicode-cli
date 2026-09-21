@@ -34,6 +34,7 @@ import { evaluateReadPermission } from './permission/read.js';
 import { evaluateWritePermission } from './permission/write.js';
 import { evaluateExecPermission } from './permission/exec.js';
 import { evaluateNetworkPermission } from './permission/network.js';
+import { runHooks } from './hooks/hooks.js';
 
 // 全局命令运行时没有 --env-file，这里兜底加载 .env（不覆盖已有环境变量）
 loadEnv({
@@ -217,6 +218,20 @@ async function toolNode(
       }
     }
 
+    // PreToolUse hooks：exit 1 阻止执行，exit 2 把信息注入对话
+    const hookEnv = { TOOL_ARGS: JSON.stringify(call.args ?? {}) };
+    const preHook = await runHooks('PreToolUse', call.name, hookEnv);
+    if (preHook.action === 'block') {
+      outputs.push(
+        new ToolMessage({
+          content: `PreToolUse hook 阻止了本次调用: ${preHook.error}`,
+          tool_call_id: call.id ?? '',
+          name: call.name,
+        }),
+      );
+      continue;
+    }
+
     // 统一在工具调用前打印日志（各工具实现内不再自行打印）
     console.log(`\n[Tool] ${call.name}`);
     const tool = tools.find((t) => t.name === call.name);
@@ -226,7 +241,17 @@ async function toolNode(
         tool as { invoke: (input: unknown, config?: unknown) => Promise<unknown> }
       ).invoke({ ...call, type: 'tool_call' }, config);
       const raw = typeof output === 'string' ? output : JSON.stringify(output);
-      const content = await maybePersistedOutput(raw, call.id ?? 'unknown');
+      let content = await maybePersistedOutput(raw, call.id ?? 'unknown');
+
+      // hook 注入的信息附加到工具结果中，随对话传递给模型
+      const postHook = await runHooks('PostToolUse', call.name, hookEnv);
+      const injections = [preHook, postHook]
+        .filter((h): h is { action: 'inject'; message: string } => h.action === 'inject')
+        .map((h) => h.message);
+      if (injections.length > 0) {
+        content += `\n\n[Hook 提示]\n${injections.join('\n')}`;
+      }
+
       outputs.push(new ToolMessage({ content, tool_call_id: call.id ?? '', name: call.name }));
     } catch (err) {
       outputs.push(

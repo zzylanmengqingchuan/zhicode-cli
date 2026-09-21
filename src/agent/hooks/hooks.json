@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "exec", "command": "echo 'Checking command...'" },
+      { "matcher": "read_file", "command": "bash src/agent/hooks/protect_env.sh" }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "command": "bash src/agent/hooks/record_tool.sh" }
+    ]
+  }
+}

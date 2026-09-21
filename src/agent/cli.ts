@@ -13,6 +13,7 @@ import { createCommand } from './command.js';
 import { handleSlashCommand, type CommandContext } from './commands.js';
 import { KEEP_RECENT_MESSAGES } from './context.js';
 import { formatContextUsage, isContextNearLimit } from './context-stats.js';
+import { runHooks } from './hooks/hooks.js';
 
 // 每次启动生成新的会话 ID；历史记录由 agent.ts 的 checkpointer 按此 ID 持久化
 // 斜杠命令（如 /new）可通过 CommandContext 切换会话
@@ -122,6 +123,14 @@ export async function startChat(): Promise<void> {
     output: process.stdout,
   });
   const ctx = createContext();
+
+  // SessionStart hook：注入的信息（exit 2 的 stderr）打印给用户
+  const sessionHook = await runHooks('SessionStart', 'session', {
+    SESSION_ID: ctx.getThreadId(),
+  });
+  if (sessionHook.action === 'inject') {
+    console.log(chalk.gray(sessionHook.message));
+  }
 
   showBanner();
 
