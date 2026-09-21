@@ -2,17 +2,14 @@ import { readLocalFile } from './read_file';
 import { readFile, tools } from '../tools';
 
 describe('readLocalFile 实现', () => {
-  it('能读取当前目录下的文件', async () => {
+  it('能读取项目内的文件（相对路径）', async () => {
     const content = await readLocalFile('package.json');
     expect(content).toContain('"name": "zzycli"');
   });
 
-  it('拒绝读取上级目录（路径穿越）', async () => {
-    await expect(readLocalFile('../outside.txt')).rejects.toThrow('只允许访问当前目录');
-  });
-
-  it('拒绝读取系统绝对路径', async () => {
-    await expect(readLocalFile('/etc/hosts')).rejects.toThrow('只允许访问当前目录');
+  it('能读取任意目录的文件（绝对路径）', async () => {
+    const content = await readLocalFile('/etc/hosts');
+    expect(content.length).toBeGreaterThan(0);
   });
 
   it('文件不存在时报错', async () => {
@@ -24,6 +21,7 @@ describe('read_file 工具注册', () => {
   it('元信息正确', () => {
     expect(readFile.name).toBe('read_file');
     expect(readFile.description).toContain('读取');
+    expect(readFile.permission_level).toBe('read');
   });
 
   it('已加入 tools 数组', () => {

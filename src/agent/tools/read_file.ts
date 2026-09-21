@@ -1,15 +1,13 @@
 import * as fs from 'node:fs/promises';
-import { resolveInCwd } from './safe-path.js';
 
 /**
  * read_file 工具的具体实现（纯函数，方便单元测试）
- * 读取当前目录下的文件内容，路径越界会被 resolveInCwd 拦截
+ * 读取本地文件内容；路径安全由 agent 层的权限模块统一把关
  */
 export async function readLocalFile(filePath: string): Promise<string> {
-  const abs = resolveInCwd(filePath);
-  const stat = await fs.stat(abs);
+  const stat = await fs.stat(filePath);
   if (!stat.isFile()) {
     throw new Error(`不是文件: ${filePath}`);
   }
-  return fs.readFile(abs, 'utf-8');
+  return fs.readFile(filePath, 'utf-8');
 }

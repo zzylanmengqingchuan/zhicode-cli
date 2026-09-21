@@ -30,12 +30,10 @@ describe('writeLocalFile 实现', () => {
     expect(await fs.readFile(path.join(process.cwd(), target), 'utf-8')).toBe('nested');
   });
 
-  it('拒绝写入上级目录（路径穿越）', async () => {
-    await expect(writeLocalFile('../evil.txt', 'x')).rejects.toThrow('只允许访问当前目录');
-  });
-
-  it('拒绝写入系统绝对路径', async () => {
-    await expect(writeLocalFile('/tmp/evil-outside.txt', 'x')).rejects.toThrow('只允许访问当前目录');
+  it('支持写入任意目录（绝对路径）', async () => {
+    const target = path.join(TMP_DIR, 'abs.txt');
+    await writeLocalFile(target, 'absolute');
+    expect(await fs.readFile(target, 'utf-8')).toBe('absolute');
   });
 });
 
@@ -43,6 +41,7 @@ describe('write_file 工具注册', () => {
   it('元信息正确', () => {
     expect(writeFile.name).toBe('write_file');
     expect(writeFile.description).toContain('创建新文件');
+    expect(writeFile.permission_level).toBe('write');
   });
 
   it('已加入 tools 数组', () => {

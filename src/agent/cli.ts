@@ -2,7 +2,12 @@
 import { randomUUID } from 'node:crypto';
 import * as readline from 'node:readline';
 import chalk from 'chalk';
-import { compressContext, modelContextLimit, runAgentStream } from './agent.js';
+import {
+  compressContext,
+  modelContextLimit,
+  runAgentStream,
+  type ToolConfirmRequest,
+} from './agent.js';
 import { showBanner } from './banner.js';
 import { createCommand } from './command.js';
 import { handleSlashCommand, type CommandContext } from './commands.js';
@@ -45,6 +50,28 @@ async function chat(
     process.stdout.write('\nAI: ');
   }
 
+  // 工具调用确认（human-in-the-loop）：仅交互终端需要按键确认，管道/脚本场景自动允许
+  const confirm = isTTY
+    ? (request: ToolConfirmRequest): Promise<boolean> =>
+        new Promise((resolve) => {
+          const argsText = JSON.stringify(request.args)?.slice(0, 200) ?? '';
+          process.stdout.write(
+            chalk.yellow(`\n⚠️  AI 请求调用工具 ${request.name}，参数: ${argsText}\n允许执行吗？[y/n] `),
+          );
+          const handler = (_str: string, key: readline.Key) => {
+            if (key && (key.name === 'y' || key.name === 'n')) {
+              process.stdin.off('keypress', handler);
+              // 清掉按键残留在 readline 行缓冲区里的字符
+              (rl as unknown as { line: string; cursor: number }).line = '';
+              (rl as unknown as { cursor: number }).cursor = 0;
+              process.stdout.write(key.name === 'y' ? 'y ✓\n' : 'n ✗\n');
+              resolve(key.name === 'y');
+            }
+          };
+          process.stdin.on('keypress', handler);
+        })
+    : undefined;
+
   try {
     const result = await runAgentStream(
       userInput,
@@ -53,6 +80,7 @@ async function chat(
       },
       ctx.getThreadId(),
       controller.signal,
+      confirm,
     );
     const max = await modelContextLimit();
     console.log(chalk.gray(`\n${formatContextUsage(result.contextTokens, max)}`));

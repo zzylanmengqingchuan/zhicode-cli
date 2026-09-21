@@ -2,9 +2,11 @@ import * as path from 'node:path';
 import { ChatOpenAI } from '@langchain/openai';
 import {
   Annotation,
+  Command,
   END,
   START,
   StateGraph,
+  interrupt,
   messagesStateReducer,
   type CompiledStateGraph,
 } from '@langchain/langgraph';
@@ -28,6 +30,7 @@ import {
   simplifyToolMessages,
 } from './context.js';
 import { DB_PATH, initDb } from './db.js';
+import { evaluateToolPermission } from './permission/index.js';
 
 // 全局命令运行时没有 --env-file，这里兜底加载 .env（不覆盖已有环境变量）
 loadEnv({
@@ -161,28 +164,61 @@ async function toolNode(
     aiMessage.tool_calls?.filter((call) => call.id == null || !toolMessageIds.has(call.id)) ??
     [];
 
-  const outputs = await Promise.all(
-    toolCalls.map(async (call) => {
-      // 统一在工具调用前打印日志（各工具实现内不再自行打印）
-      console.log(`\n[Tool] ${call.name}`);
-      const tool = tools.find((t) => t.name === call.name);
-      try {
-        if (!tool) throw new Error(`工具 "${call.name}" 不存在`);
-        const output = await (
-          tool as { invoke: (input: unknown, config?: unknown) => Promise<unknown> }
-        ).invoke({ ...call, type: 'tool_call' }, config);
-        const raw = typeof output === 'string' ? output : JSON.stringify(output);
-        const content = await maybePersistedOutput(raw, call.id ?? 'unknown');
-        return new ToolMessage({ content, tool_call_id: call.id ?? '', name: call.name });
-      } catch (err) {
-        return new ToolMessage({
+  const outputs: ToolMessage[] = [];
+  for (const call of toolCalls) {
+    // 权限判定：危险路径直接阻止；安全场景直接执行；其余需要用户确认
+    const perm = evaluateToolPermission(call.name, call.args);
+    if (perm.action === 'block') {
+      outputs.push(
+        new ToolMessage({
+          content: `操作已被安全策略阻止：路径 ${perm.filepath} 属于系统敏感目录，不能访问。请改用项目目录内的路径。`,
+          tool_call_id: call.id ?? '',
+          name: call.name,
+        }),
+      );
+      continue;
+    }
+
+    if (perm.action === 'confirm') {
+      // human-in-the-loop：interrupt 暂停 graph，等待调用方（CLI）传入用户决定
+      const decision = interrupt({
+        type: 'tool_confirm',
+        name: call.name,
+        args: call.args,
+      }) as { approved?: boolean };
+      if (!decision?.approved) {
+        outputs.push(
+          new ToolMessage({
+            content: '用户拒绝了本次工具调用，请换一个思路回答或询问用户原因。',
+            tool_call_id: call.id ?? '',
+            name: call.name,
+          }),
+        );
+        continue;
+      }
+    }
+
+    // 统一在工具调用前打印日志（各工具实现内不再自行打印）
+    console.log(`\n[Tool] ${call.name}`);
+    const tool = tools.find((t) => t.name === call.name);
+    try {
+      if (!tool) throw new Error(`工具 "${call.name}" 不存在`);
+      const output = await (
+        tool as { invoke: (input: unknown, config?: unknown) => Promise<unknown> }
+      ).invoke({ ...call, type: 'tool_call' }, config);
+      const raw = typeof output === 'string' ? output : JSON.stringify(output);
+      const content = await maybePersistedOutput(raw, call.id ?? 'unknown');
+      outputs.push(new ToolMessage({ content, tool_call_id: call.id ?? '', name: call.name }));
+    } catch (err) {
+      outputs.push(
+        new ToolMessage({
           content: `Error: ${err instanceof Error ? err.message : String(err)}\n请修正后重试。`,
           tool_call_id: call.id ?? '',
           name: call.name,
-        });
-      }
-    }),
-  );
+        }),
+      );
+    }
+  }
 
   return { messages: outputs };
 }
@@ -217,12 +253,20 @@ export interface AgentStreamResult {
   contextTokens: number | null;
 }
 
+/** 工具调用确认请求（human-in-the-loop） */
+export interface ToolConfirmRequest {
+  type: string;
+  name: string;
+  args: unknown;
+}
+
 /**
  * 以流式方式运行 agent，将 token 逐个回调给调用方
  * @param userMessage - 当前用户输入（历史已由 checkpointer 自动续接）
  * @param onToken - 每个 token 到来时的回调 (token: string) => void
  * @param threadId - 会话 ID，相同 ID 自动续上历史记录
  * @param signal - 可选的中止信号，触发后取消本次 AI 请求
+ * @param confirm - 工具调用前的用户确认回调；不传则自动允许（非交互场景）
  * @returns 完整的 AI 回复文本 + 本轮上下文 token 用量
  */
 export async function runAgentStream(
@@ -230,44 +274,57 @@ export async function runAgentStream(
   onToken: (token: string) => void,
   threadId: string = 'default-session',
   signal?: AbortSignal,
+  confirm?: (request: ToolConfirmRequest) => Promise<boolean>,
 ): Promise<AgentStreamResult> {
   const config = { configurable: { thread_id: threadId }, signal };
 
-  const stream = await agent.stream(
-    { messages: [new HumanMessage(userMessage)] },
-    { ...config, streamMode: 'messages' },
-  );
-
   let fullResponse = '';
   let usageMetadata: UsageMetadata | undefined;
+  let input: { messages: HumanMessage[] } | Command =
+    { messages: [new HumanMessage(userMessage)] };
 
-  for await (const chunk of stream as AsyncIterable<[unknown, Record<string, unknown>]>) {
-    if (signal?.aborted) {
-      throw new Error('本次请求已被取消');
+  // interrupt 会暂停 graph；用户确认后用 Command({ resume }) 继续，循环直到没有待确认的调用
+  for (;;) {
+    const stream = await agent.stream(input, { ...config, streamMode: 'messages' });
+
+    for await (const chunk of stream as AsyncIterable<[unknown, Record<string, unknown>]>) {
+      if (signal?.aborted) {
+        throw new Error('本次请求已被取消');
+      }
+
+      const message = chunk[0];
+      const metadata = chunk[1];
+
+      if (metadata?.langgraph_node !== 'model_request') continue;
+
+      const chunkUsage = (message as { usage_metadata?: UsageMetadata }).usage_metadata;
+      if (chunkUsage) {
+        usageMetadata = chunkUsage;
+      }
+
+      // AIMessageChunk 的 content 在 message.content 属性上，不在 kwargs.content
+      const content: string =
+        ((message as { content?: string }).content ??
+          (message as { kwargs?: { content?: string } }).kwargs?.content ??
+          '') as string;
+      const toolCallChunks =
+        (message as { tool_call_chunks?: unknown[] }).tool_call_chunks ?? [];
+
+      if (!content || toolCallChunks.length > 0) continue;
+
+      onToken(content);
+      fullResponse += content;
     }
 
-    const message = chunk[0];
-    const metadata = chunk[1];
+    // 检查是否有暂停待确认的 interrupt
+    const state = (await agent.getState(config)) as {
+      tasks?: { interrupts?: { value: ToolConfirmRequest }[] }[];
+    };
+    const pending = (state.tasks ?? []).flatMap((t) => t.interrupts ?? []);
+    if (pending.length === 0) break;
 
-    if (metadata?.langgraph_node !== 'model_request') continue;
-
-    const chunkUsage = (message as { usage_metadata?: UsageMetadata }).usage_metadata;
-    if (chunkUsage) {
-      usageMetadata = chunkUsage;
-    }
-
-    // AIMessageChunk 的 content 在 message.content 属性上，不在 kwargs.content
-    const content: string =
-      ((message as { content?: string }).content ??
-        (message as { kwargs?: { content?: string } }).kwargs?.content ??
-        '') as string;
-    const toolCallChunks =
-      (message as { tool_call_chunks?: unknown[] }).tool_call_chunks ?? [];
-
-    if (!content || toolCallChunks.length > 0) continue;
-
-    onToken(content);
-    fullResponse += content;
+    const approved = confirm ? await confirm(pending[0].value) : true;
+    input = new Command({ resume: { approved } });
   }
 
   return { text: fullResponse, contextTokens: usageMetadata?.input_tokens ?? null };

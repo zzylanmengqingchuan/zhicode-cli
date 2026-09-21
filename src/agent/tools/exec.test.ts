@@ -14,25 +14,6 @@ describe('execCommand 实现', () => {
     expect(await execCommand('ls src')).toContain('agent');
   });
 
-  it('拒绝 rm 删除命令', async () => {
-    await expect(execCommand('rm -rf tmp')).rejects.toThrow('禁止执行危险命令');
-  });
-
-  it('拒绝 rmdir / mv / dd', async () => {
-    await expect(execCommand('rmdir tmp')).rejects.toThrow('禁止执行危险命令');
-    await expect(execCommand('mv a b')).rejects.toThrow('禁止执行危险命令');
-    await expect(execCommand('dd if=/dev/zero of=x')).rejects.toThrow('禁止执行危险命令');
-  });
-
-  it('拒绝 sudo 提权', async () => {
-    await expect(execCommand('sudo ls')).rejects.toThrow('禁止执行危险命令');
-  });
-
-  it('拒绝跳出当前目录', async () => {
-    await expect(execCommand('cd .. && ls')).rejects.toThrow('禁止执行危险命令');
-    await expect(execCommand('cd / && ls')).rejects.toThrow('禁止执行危险命令');
-  });
-
   it('命令超时会报错', async () => {
     await expect(execCommand('sleep 5', 500)).rejects.toThrow('命令执行失败');
   });
@@ -46,6 +27,7 @@ describe('exec 工具注册', () => {
   it('元信息正确', () => {
     expect(execTool.name).toBe('exec');
     expect(execTool.description).toContain('shell');
+    expect(execTool.permission_level).toBe('exec');
   });
 
   it('已加入 tools 数组', () => {

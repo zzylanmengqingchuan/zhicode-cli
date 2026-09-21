@@ -17,116 +17,127 @@ import { deleteMemory } from './tools/memory_delete.js';
 import { updateProfile } from './tools/profile_update.js';
 
 /**
- * 工具注册中心：统一声明每个工具的 name / description / schema，
+ * 工具注册中心：统一声明每个工具的 name / description / schema / permission_level，
  * 具体实现见同目录下的各文件。新增工具时在这里注册并加入 tools 数组。
  */
-export const search = tool(
-  async ({ query }) => searchWeb(query),
-  {
+
+/** 权限级别：read 读文件 / write 写文件 / exec 执行命令 / network 网络请求 / db 数据库操作 */
+export type PermissionLevel = 'read' | 'write' | 'exec' | 'network' | 'db';
+
+/** 给工具附加 permission_level 属性（后续权限校验使用） */
+function withPerm<T extends object>(
+  t: T,
+  level: PermissionLevel,
+): T & { permission_level: PermissionLevel } {
+  return Object.assign(t, { permission_level: level });
+}
+
+export const search = withPerm(
+  tool(async ({ query }) => searchWeb(query), {
     name: 'search',
     description: 'Call to surf the web.',
     schema: z.object({
       query: z.string().describe('The query to use in your search.'),
     }),
-  },
+  }),
+  'network',
 );
 
-export const readFile = tool(
-  async ({ filePath }) => readLocalFile(filePath),
-  {
+export const readFile = withPerm(
+  tool(async ({ filePath }) => readLocalFile(filePath), {
     name: 'read_file',
-    description: '读取当前目录下的本地文件内容，返回文件文本',
+    description: '读取本地文件内容，返回文件文本',
     schema: z.object({
-      filePath: z.string().describe('相对于当前目录的文件路径'),
+      filePath: z.string().describe('文件路径'),
     }),
-  },
+  }),
+  'read',
 );
 
-export const writeFile = tool(
-  async ({ filePath, content }) => writeLocalFile(filePath, content),
-  {
+export const writeFile = withPerm(
+  tool(async ({ filePath, content }) => writeLocalFile(filePath, content), {
     name: 'write_file',
-    description: '在当前目录下创建新文件或重写已有文件',
+    description: '创建新文件或重写已有文件',
     schema: z.object({
-      filePath: z.string().describe('相对于当前目录的文件路径'),
+      filePath: z.string().describe('文件路径'),
       content: z.string().describe('要写入文件的完整内容'),
     }),
-  },
+  }),
+  'write',
 );
 
-export const execTool = tool(
-  async ({ command }) => execCommand(command),
-  {
+export const execTool = withPerm(
+  tool(async ({ command }) => execCommand(command), {
     name: 'exec',
-    description: '在当前目录下执行 shell 命令并返回输出（禁止删除等危险操作）',
+    description: '在当前目录下执行 shell 命令并返回输出',
     schema: z.object({
       command: z.string().describe('要执行的 shell 命令'),
     }),
-  },
+  }),
+  'exec',
 );
 
-export const runJsTool = tool(
-  async ({ code }) => runJs(code),
-  {
+export const runJsTool = withPerm(
+  tool(async ({ code }) => runJs(code), {
     name: 'run_js',
     description: '使用 Node.js 执行一段 JavaScript 代码，返回执行结果或报错信息',
     schema: z.object({
       code: z.string().describe('要执行的 JavaScript 代码'),
     }),
-  },
+  }),
+  'exec',
 );
 
-export const webSearchTool = tool(
-  async ({ query }) => webSearch(query),
-  {
+export const webSearchTool = withPerm(
+  tool(async ({ query }) => webSearch(query), {
     name: 'web_search',
     description: '使用 Tavily 联网搜索真实信息，当问题需要最新/真实的外部资料时使用',
     schema: z.object({
       query: z.string().describe('搜索关键词'),
     }),
-  },
+  }),
+  'network',
 );
 
-export const webFetchTool = tool(
-  async ({ url }) => webFetch(url),
-  {
+export const webFetchTool = withPerm(
+  tool(async ({ url }) => webFetch(url), {
     name: 'web_fetch',
     description: '根据 URL 获取网络资源内容（如网页正文），失败时返回错误信息',
     schema: z.object({
       url: z.string().describe('要获取的 http/https 链接'),
     }),
-  },
+  }),
+  'network',
 );
 
-export const loadSkillTool = tool(
-  async ({ name }) => loadSkillContent(name),
-  {
+export const loadSkillTool = withPerm(
+  tool(async ({ name }) => loadSkillContent(name), {
     name: 'load_skill',
     description: '加载指定 skill 的完整内容（SKILL.md），每次只能加载一个',
     schema: z.object({
       name: z.string().describe('要加载的 skill 名称'),
     }),
-  },
+  }),
+  'read',
 );
 
-export const runPyTool = tool(
-  async ({ code }) => runPy(code),
-  {
+export const runPyTool = withPerm(
+  tool(async ({ code }) => runPy(code), {
     name: 'run_py',
     description: '使用 python3 执行一段 Python 代码，返回执行结果或报错信息',
     schema: z.object({
       code: z.string().describe('要执行的 Python 代码'),
     }),
-  },
+  }),
+  'exec',
 );
 
-export const memoryCreateTool = tool(
-  async ({ type, content, keywords, importance }, config) => {
+export const memoryCreateTool = withPerm(
+  tool(async ({ type, content, keywords, importance }, config) => {
     const sessionId = (config as { configurable?: { thread_id?: string } } | undefined)
       ?.configurable?.thread_id;
     return createMemory({ type, content, keywords, importance, sessionId });
-  },
-  {
+  }, {
     name: 'memory_create',
     description:
       '当用户分享了值得长期记住的信息时存储一条记忆，例如偏好（preference）、事实（fact）、事件（event）、技能（skill）',
@@ -136,42 +147,43 @@ export const memoryCreateTool = tool(
       keywords: z.array(z.string()).optional().describe('用于检索的关键词'),
       importance: z.number().min(1).max(5).optional().describe('重要程度 1~5，默认 3'),
     }),
-  },
+  }),
+  'db',
 );
 
-export const memoryRetrieveTool = tool(
-  async ({ keywords }) => retrieveMemories(keywords),
-  {
+export const memoryRetrieveTool = withPerm(
+  tool(async ({ keywords }) => retrieveMemories(keywords), {
     name: 'memory_retrieve',
     description:
       '当用户的问题涉及过去的记忆而当前对话中没有相关信息时，提炼关键词调用此工具检索长期记忆',
     schema: z.object({
       keywords: z.array(z.string()).describe('用于检索记忆的关键词列表'),
     }),
-  },
+  }),
+  'db',
 );
 
-export const memoryDeleteTool = tool(
-  async ({ id }) => deleteMemory(id),
-  {
+export const memoryDeleteTool = withPerm(
+  tool(async ({ id }) => deleteMemory(id), {
     name: 'memory_delete',
     description: '当用户想要删除或遗忘某条记忆时，按 id 删除该记忆（id 可通过 memory_retrieve 检索结果获得）',
     schema: z.object({
       id: z.number().describe('要删除的记忆 id'),
     }),
-  },
+  }),
+  'db',
 );
 
-export const profileUpdateTool = tool(
-  async ({ content }) => updateProfile(content),
-  {
+export const profileUpdateTool = withPerm(
+  tool(async ({ content }) => updateProfile(content), {
     name: 'profile_update',
     description:
       '更新用户画像（profile）。更新时必须保留 <profile_info> 中提到的其他已有信息，所有 profile 信息一起全量更新',
     schema: z.object({
       content: z.string().describe('完整的用户画像内容（全量，不是增量）'),
     }),
-  },
+  }),
+  'write',
 );
 
 export const tools = [

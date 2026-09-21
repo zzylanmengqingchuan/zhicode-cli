@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "tsx --env-file=.env src/agent/cli.ts",
-    "build": "tsc && rm -rf dist/src/agent/skills && cp -r src/agent/skills dist/src/agent/skills && chmod +x dist/src/agent/cli.js",
+    "build": "tsc && rm -rf dist/src/agent/skills && cp -r src/agent/skills dist/src/agent/skills && cp src/agent/permission/dangerous-path.json dist/src/agent/permission/ && chmod +x dist/src/agent/cli.js",
     "start": "node --env-file=.env dist/src/agent/cli.js",
     "typecheck": "tsc --noEmit",
     "test": "jest",
