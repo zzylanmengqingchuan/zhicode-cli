@@ -5,12 +5,12 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "zzycli": "dist/src/agent/cli.js"
+    "zzycli": "dist/src/index.js"
   },
   "scripts": {
-    "dev": "tsx --env-file=.env src/agent/cli.ts",
-    "build": "tsc && rm -rf dist/src/agent/skills && cp -r src/agent/skills dist/src/agent/skills && cp src/agent/permission/dangerous-path.json dist/src/agent/permission/ && cp src/agent/hooks/hooks.json dist/src/agent/hooks/ && chmod +x dist/src/agent/cli.js",
-    "start": "node --env-file=.env dist/src/agent/cli.js",
+    "dev": "tsx --env-file=.env src/index.ts",
+    "build": "tsc && rm -rf dist/src/agent/skills && cp -r src/agent/skills dist/src/agent/skills && cp src/agent/permission/dangerous-path.json dist/src/agent/permission/ && cp src/agent/hooks/hooks.json dist/src/agent/hooks/ && chmod +x dist/src/index.js",
+    "start": "node --env-file=.env dist/src/index.js",
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",

@@ -1,7 +1,7 @@
-export function add(a: number, b: number): number {
-  return a + b;
-}
+#!/usr/bin/env node
+import { startChat } from './agent/cli.js';
+import { createCommand } from './agent/command.js';
 
-export function greet(name: string): string {
-  return `Hello, ${name}!`;
-}
+// 入口：组装命令并启动
+const program = createCommand(startChat);
+program.parseAsync(process.argv);

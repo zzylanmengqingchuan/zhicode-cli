@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { randomUUID } from 'node:crypto';
 import * as readline from 'node:readline';
 import chalk from 'chalk';
@@ -11,7 +10,6 @@ import {
   type ToolConfirmRequest,
 } from './agent.js';
 import { showBanner } from './banner.js';
-import { createCommand } from './command.js';
 import { handleSlashCommand, type CommandContext } from './commands.js';
 import { KEEP_RECENT_MESSAGES } from './context.js';
 import { formatContextUsage, isContextNearLimit } from './context-stats.js';
@@ -172,7 +170,4 @@ process.on('SIGINT', async () => {
   await closeAgent();
   process.exit(0);
 });
-
-const program = createCommand(startChat);
-program.parseAsync(process.argv);
 
