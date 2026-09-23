@@ -2,7 +2,13 @@ import { config as loadEnv } from 'dotenv';
 import { webSearch } from './web_search';
 import { webSearchTool, tools } from '../tools';
 
-// 测试真实搜索需要 .env 里的 TAVILY_API_KEY
+// 测试中 getEnvValue 只读进程环境变量（与 ~/.zhiwen/zhiwen.json 的真实配置隔离）
+jest.mock('../config', () => ({
+  ...jest.requireActual('../config'),
+  getEnvValue: (name: string) => process.env[name],
+}));
+
+// 测试真实搜索需要 TAVILY_API_KEY
 loadEnv({ quiet: true });
 
 describe('webSearch 实现', () => {

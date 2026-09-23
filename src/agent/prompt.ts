@@ -1,11 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { DATA_DIR } from './config.js';
 import { listSkills, skillsPrompt } from './skills.js';
 
-const PROFILE_PATH = path.resolve(process.cwd(), '.data', 'profile.md');
+/** 用户画像文件：~/.zhiwen/.data/profile.md */
+const PROFILE_PATH = path.join(DATA_DIR, 'profile.md');
 
 /**
- * 读取当前用户的 profile 信息（.data/profile.md）
+ * 读取当前用户的 profile 信息（~/.zhiwen/.data/profile.md）
  * 文件不存在或没有内容时返回空的 <profile_info></profile_info>
  */
 export function loadProfileInfo(profilePath: string = PROFILE_PATH): string {

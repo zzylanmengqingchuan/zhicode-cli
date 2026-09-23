@@ -1,12 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { DATA_DIR } from '../config.js';
 
-const PROFILE_PATH = path.resolve(process.cwd(), '.data', 'profile.md');
+/** 用户画像文件：~/.zhiwen/.data/profile.md */
+const PROFILE_PATH = path.join(DATA_DIR, 'profile.md');
 
 /**
  * profile_update 工具的具体实现（纯函数，方便单元测试）
- * 全量更新用户画像文件 .data/profile.md；
- * 更新前把旧文件备份为 profile.<时间戳>-<随机串>.md，防止失误丢数据
+ * 全量更新用户画像文件；更新前把旧文件备份为 profile.<时间戳>-<随机串>.md，防止失误丢数据
  */
 export function updateProfile(content: string, profilePath: string = PROFILE_PATH): string {
   const dir = path.dirname(profilePath);

@@ -1,9 +1,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
+import { DATA_DIR } from './config.js';
 
-/** sqlite 数据库文件（checkpointer 与 memory 表共用一个库） */
-export const DB_PATH = path.resolve(process.cwd(), '.data', 'checkpointer.db');
+/** sqlite 数据库文件（~/.zhiwen/.data/ 下，全局共享） */
+export const DB_PATH = path.join(DATA_DIR, 'checkpointer.db');
 
 /**
  * 启动时初始化数据表；表已存在则跳过（IF NOT EXISTS）

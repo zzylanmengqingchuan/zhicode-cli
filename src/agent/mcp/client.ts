@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { MultiServerMCPClient } from '@langchain/mcp-adapters';
+import { getMcpServerConfig } from '../config.js';
 import type { GraphTool } from '../graph.js';
 import type { PermissionLevel } from '../tools.js';
 
@@ -35,11 +36,19 @@ function expandHeaders(headers?: Record<string, string>): Record<string, string>
 }
 
 export function loadMcpConfig(configPath: string = MCP_CONFIG_PATH): McpConfig {
+  let base: McpConfig = {};
   try {
-    return JSON.parse(fs.readFileSync(configPath, 'utf-8')) as McpConfig;
+    base = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as McpConfig;
   } catch {
-    return {};
+    // 项目内 mcp.json 不存在时视为无内置配置
   }
+  // 合并用户配置 ~/.zhiwen/zhiwen.json 的 mcpServers 区（同名 server 以用户配置为准）
+  return {
+    mcpServers: {
+      ...(base.mcpServers ?? {}),
+      ...(getMcpServerConfig() as Record<string, McpServerConfig>),
+    },
+  };
 }
 
 /**
@@ -66,7 +75,12 @@ export async function loadMcpTools(configPath: string = MCP_CONFIG_PATH): Promis
                     ? { headers: expandHeaders(server.headers)! }
                     : {}),
                 }
-              : { command: server.command!, args: server.args ?? [], transport: 'stdio' },
+              : {
+                  command: server.command!,
+                  // args 也支持 ${VAR} 环境变量展开（如 ${HOME}）
+                  args: (server.args ?? []).map(expandEnvVars),
+                  transport: 'stdio',
+                },
           },
         });
         const serverTools = (await client.getTools()) as unknown as GraphTool[];

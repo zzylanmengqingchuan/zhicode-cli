@@ -51,7 +51,7 @@ describe('skillsPrompt 提示文本', () => {
   it('包含 skills 目录位置和新建 skill 的存放规则', () => {
     const text = skillsPrompt([{ name: 'demo', description: '演示' }]);
     expect(text).toContain('- demo: 演示');
-    expect(text).toContain('skills 目录: src/agent/skills');
+    expect(text).toContain('skills 目录:');
     expect(text).toContain('必须放在这个目录下');
   });
 

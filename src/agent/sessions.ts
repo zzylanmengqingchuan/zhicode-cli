@@ -1,14 +1,12 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 import Database from 'better-sqlite3';
+import { DB_PATH } from './db.js';
 
 export interface SessionInfo {
   threadId: string;
   lastQuestion: string;
   lastActiveAt: Date;
 }
-
-const DB_PATH = path.resolve(process.cwd(), '.data', 'checkpointer.db');
 
 const MAX_QUESTION_LEN = 50;
 

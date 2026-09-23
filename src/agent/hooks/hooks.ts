@@ -1,6 +1,7 @@
 import { exec } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { loadConfig } from '../config.js';
 
 export interface HookEntry {
   /** 匹配工具名（name 中包含该字符串即命中；非工具类事件用 "*" 或不填匹配全部） */
@@ -23,18 +24,26 @@ const HOOKS_PATH = path.join(__dirname, 'hooks.json');
 let cachedConfig: HooksConfig | null = null;
 
 /**
- * 加载 hooks.json 配置（带缓存；测试可传入自定义路径）
+ * 加载 hooks 配置（带缓存；测试可传入自定义路径）：
+ * 内置 hooks.json（代码自带的安全默认）+ 用户配置 ~/.zhiwen/zhiwen.json 的 hooks 区，按事件合并
  */
 export function loadHooksConfig(configPath: string = HOOKS_PATH): HooksConfig {
   if (configPath === HOOKS_PATH && cachedConfig) return cachedConfig;
-  let config: HooksConfig = { hooks: {} };
+  let base: HooksConfig = { hooks: {} };
   try {
-    config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as HooksConfig;
+    base = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as HooksConfig;
   } catch {
-    // 配置文件不存在或格式错误时视为无 hooks
+    // 配置文件不存在或格式错误时视为无内置 hooks
   }
-  if (configPath === HOOKS_PATH) cachedConfig = config;
-  return config;
+
+  const userHooks = loadConfig()?.hooks ?? {};
+  const merged: HooksConfig = { hooks: { ...base.hooks } };
+  for (const [event, entries] of Object.entries(userHooks)) {
+    merged.hooks[event] = [...(merged.hooks[event] ?? []), ...entries];
+  }
+
+  if (configPath === HOOKS_PATH) cachedConfig = merged;
+  return merged;
 }
 
 /**

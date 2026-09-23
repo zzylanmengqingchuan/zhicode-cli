@@ -1,11 +1,14 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { maybePersistedOutput } from './tools';
+import { TOOL_OUTPUT_DIR } from './tools/persist_output';
 
-const OUTPUT_DIR = path.join(process.cwd(), 'tool_output');
+const OUTPUT_DIR = TOOL_OUTPUT_DIR;
+const TEST_FILE = path.join(OUTPUT_DIR, 'tool_output_call-big.txt');
 
 afterAll(async () => {
-  await fs.rm(OUTPUT_DIR, { recursive: true, force: true });
+  // 只删除测试产生的文件，不清整个目录
+  await fs.rm(TEST_FILE, { force: true });
 });
 
 describe('maybePersistedOutput', () => {

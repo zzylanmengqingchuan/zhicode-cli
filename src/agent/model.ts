@@ -1,16 +1,12 @@
 import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import { ChatOpenAI } from '@langchain/openai';
+import { CONFIG_PATH, loadConfig } from './config.js';
 
 export interface ModelConfig {
   model: string;
   apiKey: string;
   baseURL: string;
 }
-
-/** 用户级配置文件：~/.zhiwen/zhiwen.json（跨平台：os.homedir() 兼容 Win/Mac/Linux） */
-export const CONFIG_PATH = path.join(os.homedir(), '.zhiwen', 'zhiwen.json');
 
 const CONFIG_EXAMPLE = `{
   "model": {
@@ -31,14 +27,12 @@ export function loadModelConfig(configPath: string = CONFIG_PATH): ModelConfig {
     );
   }
 
-  let raw: unknown;
-  try {
-    raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-  } catch {
+  const raw = loadConfig(configPath);
+  if (!raw) {
     throw new Error(`配置文件 ${configPath} 不是合法的 JSON，请修正。参考格式：\n${CONFIG_EXAMPLE}`);
   }
 
-  const model = (raw as { model?: Partial<ModelConfig> } | null)?.model;
+  const model = raw.model;
   const missing = (['model', 'apiKey', 'baseURL'] as const).filter((k) => !model?.[k]);
   if (!model || missing.length > 0) {
     throw new Error(

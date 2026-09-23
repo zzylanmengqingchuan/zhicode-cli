@@ -2,6 +2,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { expandEnvVars, loadMcpConfig } from './client';
 
+// 隔离用户配置文件（~/.zhiwen/zhiwen.json）的影响，测试只验证 mcp.json 解析与合并逻辑
+jest.mock('../config', () => ({
+  ...jest.requireActual('../config'),
+  getMcpServerConfig: jest.fn(() => ({})),
+}));
+
 const TMP_DIR = path.join(process.cwd(), 'tmp-mcp-test');
 
 afterAll(() => {
@@ -26,13 +32,13 @@ describe('loadMcpConfig', () => {
   });
 
   it('配置文件不存在时返回空配置', () => {
-    expect(loadMcpConfig('/no/such/mcp.json')).toEqual({});
+    expect(loadMcpConfig('/no/such/mcp.json')).toEqual({ mcpServers: {} });
   });
 
   it('配置文件格式错误时返回空配置', () => {
     const badPath = path.join(TMP_DIR, 'bad.json');
     fs.writeFileSync(badPath, 'not json{');
-    expect(loadMcpConfig(badPath)).toEqual({});
+    expect(loadMcpConfig(badPath)).toEqual({ mcpServers: {} });
   });
 });
 
@@ -49,5 +55,18 @@ describe('expandEnvVars', () => {
 
   it('不含变量的字符串原样返回', () => {
     expect(expandEnvVars('plain-text')).toBe('plain-text');
+  });
+});
+
+describe('mcpServers 合并', () => {
+  it('用户配置的 mcpServers 合并进 mcp.json', () => {
+    const { getMcpServerConfig } = jest.requireMock('../config') as {
+      getMcpServerConfig: jest.Mock;
+    };
+    getMcpServerConfig.mockReturnValueOnce({
+      github: { url: 'https://api.githubcopilot.com/mcp/' },
+    });
+    const config = loadMcpConfig(path.join(TMP_DIR, 'mcp.json'));
+    expect(config.mcpServers?.github?.url).toBe('https://api.githubcopilot.com/mcp/');
   });
 });
