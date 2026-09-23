@@ -1,11 +1,11 @@
 {
-  "name": "zzycli",
+  "name": "zhiwen",
   "version": "1.0.0",
-  "description": "AI 命令行聊天工具，基于 Kimi 大模型 + LangChain ReAct Agent",
+  "description": "知文：AI 命令行助手，基于 LangChain ReAct Agent，支持多模型（Kimi/DeepSeek/GLM 等）",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "zzycli": "dist/src/index.js"
+    "zhiwen": "dist/src/index.js"
   },
   "scripts": {
     "dev": "tsx --env-file=.env src/index.ts",

@@ -12,9 +12,9 @@ afterAll(async () => {
 describe('writeLocalFile 实现', () => {
   it('能创建新文件并写入内容', async () => {
     const target = 'tmp-tool-test/hello.txt';
-    const msg = await writeLocalFile(target, 'hello zzycli');
+    const msg = await writeLocalFile(target, 'hello zhiwen');
     expect(msg).toContain('文件已写入');
-    expect(await fs.readFile(path.join(process.cwd(), target), 'utf-8')).toBe('hello zzycli');
+    expect(await fs.readFile(path.join(process.cwd(), target), 'utf-8')).toBe('hello zhiwen');
   });
 
   it('能重写已有文件', async () => {

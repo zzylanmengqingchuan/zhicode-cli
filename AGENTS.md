@@ -4,7 +4,7 @@ This file provides guidance to Kimi Code (and other AI coding agents) when worki
 
 ## Project Overview
 
-npm-cli — a TypeScript CLI project built on LangChain v1 (langchain, @langchain/core, @langchain/langgraph) for building LLM agents / graphs.
+zhiwen（知文）— 一个 TypeScript AI 命令行助手，基于 LangChain v1 ReAct Agent，支持多模型（配置在 ~/.zhiwen/zhiwen.json）、MCP 工具、skills、长期记忆与 hooks。
 
 ## Tech Stack
 

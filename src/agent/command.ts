@@ -21,7 +21,7 @@ export function loadPkg(): Pkg {
       return JSON.parse(fs.readFileSync(p, 'utf-8')) as Pkg;
     }
   }
-  return { name: 'zzycli', version: '0.0.0', description: '', author: '', docs: '' };
+  return { name: 'zhiwen', version: '0.0.0', description: '', author: '', docs: '' };
 }
 
 export function createCommand(startChat: () => Promise<void>): Command {
@@ -30,7 +30,7 @@ export function createCommand(startChat: () => Promise<void>): Command {
   const program = new Command();
 
   program
-    .name('zzycli')
+    .name('zhiwen')
     .description(pkg.description || 'AI 命令行聊天工具，基于 Kimi 大模型')
     .version(pkg.version, '-v, --version', '显示版本号')
     .action(async () => {

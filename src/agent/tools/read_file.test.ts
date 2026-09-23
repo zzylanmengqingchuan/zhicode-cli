@@ -4,7 +4,7 @@ import { readFile, tools } from '../tools';
 describe('readLocalFile 实现', () => {
   it('能读取项目内的文件（相对路径）', async () => {
     const content = await readLocalFile('package.json');
-    expect(content).toContain('"name": "zzycli"');
+    expect(content).toContain('"name": "zhiwen"');
   });
 
   it('能读取任意目录的文件（绝对路径）', async () => {

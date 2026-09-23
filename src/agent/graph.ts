@@ -1,5 +1,4 @@
 import * as path from 'node:path';
-import { ChatOpenAI } from '@langchain/openai';
 import {
   Annotation,
   END,
@@ -38,18 +37,9 @@ loadEnv({
   ],
 });
 
-// —— 模型 ———————————————————————————————————————————————————
-export const MODEL_NAME = 'kimi-k2.6';
-export const MODEL_BASE_URL = 'https://api.moonshot.cn/v1';
-
-export const model = new ChatOpenAI({
-  model: MODEL_NAME,
-  apiKey: process.env.MOONSHOT_API_KEY,
-  configuration: {
-    baseURL: MODEL_BASE_URL,
-  },
-  streaming: true,
-});
+// —— 模型（配置在 ~/.zhiwen/zhiwen.json，支持任意 OpenAI 兼容模型） ————————————
+export { model, MODEL_BASE_URL, MODEL_NAME } from './model.js';
+import { model } from './model.js';
 
 /** 图可执行的最小工具形态（结构化工具实例） */
 export interface GraphTool {
