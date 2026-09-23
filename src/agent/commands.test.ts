@@ -1,4 +1,9 @@
 import { handleSlashCommand, registerCommand, type CommandContext } from './commands';
+import { initAgent } from './agent';
+
+beforeAll(async () => {
+  await initAgent({ loadMcp: false }); // 测试不拉起 MCP 子进程
+});
 
 function makeCtx(): CommandContext & { id: string } {
   const state = { id: 'session-test-1' };

@@ -21,6 +21,8 @@
   "docs": "https://github.com/zzylanmengqingchuan/zhicode-cli",
   "license": "ISC",
   "devDependencies": {
+    "@modelcontextprotocol/server-filesystem": "^2026.8.31",
+    "@playwright/mcp": "^0.0.82",
     "@types/better-sqlite3": "^9.6.0",
     "@types/figlet": "^1.7.0",
     "@types/jest": "^30.0.0",
@@ -34,6 +36,7 @@
     "@langchain/core": "^1.2.11",
     "@langchain/langgraph": "^1.4.16",
     "@langchain/langgraph-checkpoint-sqlite": "^1.0.4",
+    "@langchain/mcp-adapters": "^1.1.4",
     "@langchain/openai": "^1.5.13",
     "@langchain/tavily": "^1.2.0",
     "better-sqlite3": "^13.0.3",

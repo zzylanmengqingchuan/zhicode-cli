@@ -3,7 +3,9 @@ import { randomUUID } from 'node:crypto';
 import * as readline from 'node:readline';
 import chalk from 'chalk';
 import {
+  closeAgent,
   compressContext,
+  initAgent,
   modelContextLimit,
   runAgentStream,
   type ToolConfirmRequest,
@@ -118,6 +120,9 @@ async function chat(
 }
 
 export async function startChat(): Promise<void> {
+  // 初始化 agent（连接 MCP server 并合并工具）
+  await initAgent();
+
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -159,7 +164,14 @@ export async function startChat(): Promise<void> {
   }
 
   rl.close();
+  await closeAgent(); // 关闭 MCP server 子进程等资源
 }
+
+// Ctrl+C 时也要清理 MCP 子进程
+process.on('SIGINT', async () => {
+  await closeAgent();
+  process.exit(0);
+});
 
 const program = createCommand(startChat);
 program.parseAsync(process.argv);

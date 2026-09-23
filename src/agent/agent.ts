@@ -1,65 +1,19 @@
-import * as path from 'node:path';
-import { ChatOpenAI } from '@langchain/openai';
-import {
-  Annotation,
-  Command,
-  END,
-  START,
-  StateGraph,
-  interrupt,
-  messagesStateReducer,
-  type CompiledStateGraph,
-} from '@langchain/langgraph';
+import { Command } from '@langchain/langgraph';
+import { HumanMessage, SystemMessage, type BaseMessage, type UsageMetadata } from '@langchain/core/messages';
 import { SqliteSaver } from '@langchain/langgraph-checkpoint-sqlite';
-import {
-  AIMessage,
-  HumanMessage,
-  SystemMessage,
-  ToolMessage,
-  type BaseMessage,
-  type UsageMetadata,
-} from '@langchain/core/messages';
-import { config as loadEnv } from 'dotenv';
-import { maybePersistedOutput, tools } from './tools.js';
+import { tools } from './tools.js';
 import { buildSystemPrompt } from './prompt.js';
 import { getModelContextLimit } from './context-stats.js';
-import {
-  capMessages,
-  compressionRange,
-  formatMessagesForCompression,
-  simplifyToolMessages,
-} from './context.js';
+import { buildAgentGraph, model, MODEL_BASE_URL, MODEL_NAME } from './graph.js';
+import { compressionRange, formatMessagesForCompression } from './context.js';
 import { DB_PATH, initDb } from './db.js';
-import { evaluateReadPermission } from './permission/read.js';
-import { evaluateWritePermission } from './permission/write.js';
-import { evaluateExecPermission } from './permission/exec.js';
-import { evaluateNetworkPermission } from './permission/network.js';
-import { runHooks } from './hooks/hooks.js';
+import { closeMcp, loadMcpTools } from './mcp/client.js';
 
-// 全局命令运行时没有 --env-file，这里兜底加载 .env（不覆盖已有环境变量）
-loadEnv({
-  quiet: true,
-  path: [
-    path.resolve(__dirname, '../../.env'),
-    path.resolve(__dirname, '../../../.env'),
-    path.resolve(process.cwd(), '.env'),
-  ],
-});
+// graph.ts 中已完成 .env 加载与模型初始化，这里无需重复
 
-// —— 模型 ———————————————————————————————————————————————————
-export const MODEL_NAME = 'kimi-k2.6';
-export const MODEL_BASE_URL = 'https://api.moonshot.cn/v1';
-
-const model = new ChatOpenAI({
-  model: MODEL_NAME,
-  apiKey: process.env.MOONSHOT_API_KEY,
-  configuration: {
-    baseURL: MODEL_BASE_URL,
-  },
-  streaming: true,
-});
-
-const modelWithTools = model.bindTools(tools);
+// —— Prompt 组装 ————————————————————————————————————————————
+// 顺序：基础人设 → 用户画像（模板+.data/profile.md 实际信息）→ （memoryPrompt 预留）→ skills
+const systemPrompt = buildSystemPrompt();
 
 /**
  * 当前模型的最大上下文 token 数（动态查询模型服务方接口，带缓存）
@@ -68,228 +22,51 @@ export function modelContextLimit(): Promise<number | null> {
   return getModelContextLimit(MODEL_NAME, process.env.MOONSHOT_API_KEY, MODEL_BASE_URL);
 }
 
-// —— Prompt 组装 ————————————————————————————————————————————
-// 顺序：基础人设 → 用户画像（模板+.data/profile.md 实际信息）→ （memoryPrompt 预留）→ skills
-const systemPrompt = buildSystemPrompt();
-
-// —— State 定义 —————————————————————————————————————————————
-// messages：完整的聊天记录（由 checkpointer 持久化，永不修改）
-// llmInputMessages：手动指定的下一轮 LLM 输入（整体替换，优先级最高）
-// summary / compressedUpTo / compressionCount：Context 压缩状态
-//   summary 是前 compressedUpTo 条消息的摘要；modelRequest 动态拼
-//   「摘要 + messages[compressedUpTo:]」发给 LLM，新消息自动进入上下文
-const StateAnnotation = Annotation.Root({
-  messages: Annotation<BaseMessage[]>({
-    reducer: messagesStateReducer,
-    default: () => [],
-  }),
-  llmInputMessages: Annotation<BaseMessage[]>({
-    // 写入即整体替换，不走追加
-    reducer: (_, update) => messagesStateReducer([], update),
-    default: () => [],
-  }),
-  summary: Annotation<string>({
-    reducer: (_, next) => next,
-    default: () => '',
-  }),
-  compressedUpTo: Annotation<number>({
-    reducer: (_, next) => next,
-    default: () => 0,
-  }),
-  compressionCount: Annotation<number>({
-    reducer: (_, next) => next,
-    default: () => 0,
-  }),
-});
-
-type AgentState = typeof StateAnnotation.State;
-
-export const SUMMARY_PREFIX = '【对话历史摘要】';
-
-function getModelInputMessages(state: AgentState): BaseMessage[] {
-  if (state.llmInputMessages != null && state.llmInputMessages.length > 0) {
-    return capMessages(state.llmInputMessages);
-  }
-  if (state.summary && state.compressedUpTo > 0) {
-    return capMessages([
-      new SystemMessage(
-        `${SUMMARY_PREFIX}以下是之前对话的压缩摘要，回答时请将其作为已知上下文：\n${state.summary}`,
-      ),
-      ...simplifyToolMessages(state.messages.slice(state.compressedUpTo)),
-    ]);
-  }
-  return capMessages(simplifyToolMessages(state.messages));
-}
-
-// —— Graph 节点 —————————————————————————————————————————————
-async function modelRequest(
-  state: AgentState,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  config: any,
-): Promise<Partial<AgentState>> {
-  const messages = [new SystemMessage(systemPrompt), ...getModelInputMessages(state)];
-  const response = await modelWithTools.invoke(messages, config);
-  return { messages: [response] };
-}
-
-function shouldContinue(state: AgentState): 'tools' | typeof END {
-  const lastMessage = state.messages[state.messages.length - 1];
-  if (AIMessage.isInstance(lastMessage) && lastMessage.tool_calls?.length) {
-    return 'tools';
-  }
-  return END;
-}
-
-// 按工具的 permission_level 分发到对应的权限判定（read/write/exec 各自独立实现）
-function evaluatePermission(
-  toolName: string,
-  args: unknown,
-): { action: 'allow' | 'confirm' | 'block'; filepath?: string; reason?: string } {
-  const tool = tools.find((t) => t.name === toolName);
-  const level = (tool as { permission_level?: string } | undefined)?.permission_level;
-  if (level === 'read') return evaluateReadPermission(args);
-  if (level === 'write') return evaluateWritePermission(args);
-  if (level === 'exec') return evaluateExecPermission(args);
-  if (level === 'network') return evaluateNetworkPermission(args);
-  return { action: 'confirm' };
-}
-
-async function toolNode(
-  state: AgentState,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  config: any,
-): Promise<Partial<AgentState>> {
-  const messages = state.messages;
-  const toolMessageIds = new Set(
-    messages
-      .filter((msg) => msg.type === 'tool')
-      .map((msg) => (msg as ToolMessage).tool_call_id),
-  );
-
-  let aiMessage: BaseMessage | undefined;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (AIMessage.isInstance(messages[i])) {
-      aiMessage = messages[i];
-      break;
-    }
-  }
-  if (!aiMessage || !AIMessage.isInstance(aiMessage)) {
-    throw new Error('toolNode 只接受最后一条消息为 AIMessage 的状态');
-  }
-
-  // 只执行还没有对应 ToolMessage 的工具调用
-  const toolCalls =
-    aiMessage.tool_calls?.filter((call) => call.id == null || !toolMessageIds.has(call.id)) ??
-    [];
-
-  const outputs: ToolMessage[] = [];
-  for (const call of toolCalls) {
-    // 权限判定：危险路径直接阻止；安全场景直接执行；其余需要用户确认
-    const perm = evaluatePermission(call.name, call.args);
-    if (perm.action === 'block') {
-      outputs.push(
-        new ToolMessage({
-          content:
-            perm.reason ??
-            `操作已被安全策略阻止：路径 ${perm.filepath} 属于系统敏感目录，不能访问。请改用项目目录内的路径。`,
-          tool_call_id: call.id ?? '',
-          name: call.name,
-        }),
-      );
-      continue;
-    }
-
-    if (perm.action === 'confirm') {
-      // human-in-the-loop：interrupt 暂停 graph，等待调用方（CLI）传入用户决定
-      const decision = interrupt({
-        type: 'tool_confirm',
-        name: call.name,
-        args: call.args,
-      }) as { approved?: boolean };
-      if (!decision?.approved) {
-        outputs.push(
-          new ToolMessage({
-            content: '用户拒绝了本次工具调用，请换一个思路回答或询问用户原因。',
-            tool_call_id: call.id ?? '',
-            name: call.name,
-          }),
-        );
-        continue;
-      }
-    }
-
-    // PreToolUse hooks：exit 1 阻止执行，exit 2 把信息注入对话
-    const hookEnv = { TOOL_ARGS: JSON.stringify(call.args ?? {}) };
-    const preHook = await runHooks('PreToolUse', call.name, hookEnv);
-    if (preHook.action === 'block') {
-      outputs.push(
-        new ToolMessage({
-          content: `PreToolUse hook 阻止了本次调用: ${preHook.error}`,
-          tool_call_id: call.id ?? '',
-          name: call.name,
-        }),
-      );
-      continue;
-    }
-
-    // 统一在工具调用前打印日志（各工具实现内不再自行打印）
-    console.log(`\n[Tool] ${call.name}`);
-    const tool = tools.find((t) => t.name === call.name);
-    try {
-      if (!tool) throw new Error(`工具 "${call.name}" 不存在`);
-      const output = await (
-        tool as { invoke: (input: unknown, config?: unknown) => Promise<unknown> }
-      ).invoke({ ...call, type: 'tool_call' }, config);
-      const raw = typeof output === 'string' ? output : JSON.stringify(output);
-      let content = await maybePersistedOutput(raw, call.id ?? 'unknown');
-
-      // hook 注入的信息附加到工具结果中，随对话传递给模型
-      const postHook = await runHooks('PostToolUse', call.name, hookEnv);
-      const injections = [preHook, postHook]
-        .filter((h): h is { action: 'inject'; message: string } => h.action === 'inject')
-        .map((h) => h.message);
-      if (injections.length > 0) {
-        content += `\n\n[Hook 提示]\n${injections.join('\n')}`;
-      }
-
-      outputs.push(new ToolMessage({ content, tool_call_id: call.id ?? '', name: call.name }));
-    } catch (err) {
-      outputs.push(
-        new ToolMessage({
-          content: `Error: ${err instanceof Error ? err.message : String(err)}\n请修正后重试。`,
-          tool_call_id: call.id ?? '',
-          name: call.name,
-        }),
-      );
-    }
-  }
-
-  return { messages: outputs };
-}
-
 // —— 记忆 ———————————————————————————————————————————————————
 // 聊天记录持久化到当前目录的 .data/checkpointer.db，进程重启后记忆仍在
 // 启动时初始化数据库表（memory 等），已存在则跳过
 initDb();
 const checkpointer = SqliteSaver.fromConnString(DB_PATH);
 
-// —— Agent Graph ————————————————————————————————————————————
-// 流程：START → model_request →（有工具调用 → tools → 回到 model_request）/（无 → END）
-const workflow = new StateGraph(StateAnnotation)
-  .addNode('model_request', modelRequest)
-  .addNode('tools', toolNode)
-  .addEdge(START, 'model_request')
-  .addConditionalEdges('model_request', shouldContinue, {
-    tools: 'tools',
-    [END]: END,
-  })
-  .addEdge('tools', 'model_request');
+// —— Agent 初始化 ———————————————————————————————————————————
+// MCP 工具需要异步连接，所以 agent 改为显式初始化
+let agentInstance: ReturnType<typeof buildAgentGraph> | null = null;
+let allTools: typeof tools = tools;
 
-export const agent = workflow.compile({ checkpointer }) as CompiledStateGraph<
-  unknown,
-  unknown,
-  string
->;
+/**
+ * 初始化 main agent：加载 MCP 工具并与本地工具合并。
+ * 在 cli 启动时调用一次；重复调用幂等。
+ * @param options.loadMcp 测试时可传 false 跳过 MCP 连接（避免拉起子进程）
+ */
+export async function initAgent(options: { loadMcp?: boolean } = {}): Promise<void> {
+  if (agentInstance) return;
+  const mcpTools = options.loadMcp === false ? [] : await loadMcpTools();
+  allTools = [...tools, ...mcpTools] as typeof tools;
+  agentInstance = buildAgentGraph({
+    tools: allTools,
+    checkpointer,
+    systemPrompt,
+  });
+}
+
+/** 全部工具（本地 + MCP），subagent 也用这份（过滤掉 agent 工具） */
+export function getAllTools(): typeof tools {
+  return allTools;
+}
+
+function getAgent(): ReturnType<typeof buildAgentGraph> {
+  if (!agentInstance) {
+    throw new Error('agent 未初始化，请先调用 initAgent()');
+  }
+  return agentInstance;
+}
+
+/**
+ * 关闭 agent 相关资源（MCP server 子进程等），进程退出前调用
+ */
+export async function closeAgent(): Promise<void> {
+  await closeMcp();
+}
 
 export interface AgentStreamResult {
   text: string;
@@ -328,6 +105,7 @@ export async function runAgentStream(
     { messages: [new HumanMessage(userMessage)] };
 
   // interrupt 会暂停 graph；用户确认后用 Command({ resume }) 继续，循环直到没有待确认的调用
+  const agent = getAgent();
   for (;;) {
     const stream = await agent.stream(input, { ...config, streamMode: 'messages' });
 
@@ -418,6 +196,7 @@ interface CompressibleState {
  */
 export async function compressContext(threadId: string): Promise<CompressOutcome | null> {
   const config = { configurable: { thread_id: threadId } };
+  const agent = getAgent();
   const state = (await agent.getState(config)) as { values?: CompressibleState };
   const values = state.values ?? {};
 

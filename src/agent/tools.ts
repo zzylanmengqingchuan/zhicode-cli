@@ -1,7 +1,5 @@
 import { tool } from 'langchain';
 import { z } from 'zod';
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import { searchWeb } from './tools/search.js';
 import { readLocalFile } from './tools/read_file.js';
 import { writeLocalFile } from './tools/write_file.js';
@@ -15,6 +13,7 @@ import { createMemory } from './tools/memory_create.js';
 import { retrieveMemories } from './tools/memory_retrieve.js';
 import { deleteMemory } from './tools/memory_delete.js';
 import { updateProfile } from './tools/profile_update.js';
+import { runSubAgent } from './tools/sub_agent.js';
 
 /**
  * 工具注册中心：统一声明每个工具的 name / description / schema / permission_level，
@@ -186,6 +185,18 @@ export const profileUpdateTool = withPerm(
   'write',
 );
 
+export const agentTool = withPerm(
+  tool(async ({ prompt }) => runSubAgent(prompt), {
+    name: 'agent',
+    description:
+      '启动一个子 agent 独立完成一个独立任务。只传入任务描述（纯文本），子 agent 看不到当前对话记录，执行完后返回最终结果。一次只能启动一个子 agent。',
+    schema: z.object({
+      prompt: z.string().describe('要交给子 agent 独立完成的任务描述（纯文本）'),
+    }),
+  }),
+  'exec',
+);
+
 export const tools = [
   search,
   readFile,
@@ -200,35 +211,8 @@ export const tools = [
   memoryRetrieveTool,
   memoryDeleteTool,
   profileUpdateTool,
+  agentTool,
 ];
 
-// —— 工具输出过大时的落盘处理 ————————————————————————————————
-
-const MAX_INLINE_OUTPUT = 50000;
-const PREVIEW_LENGTH = 2000;
-
-/**
- * 工具输出超长时把完整内容写入 ./tool_output/ 文件，
- * 返回给模型的内容替换为「文件路径 + 前 2000 字预览」，避免撑爆 Context
- */
-export async function maybePersistedOutput(
-  content: string,
-  toolCallId: string,
-): Promise<string> {
-  if (content.length <= MAX_INLINE_OUTPUT) return content;
-
-  const dir = path.resolve(process.cwd(), 'tool_output');
-  await fs.mkdir(dir, { recursive: true });
-  const filePath = path.join(dir, `tool_output_${toolCallId}.txt`);
-  await fs.writeFile(filePath, content, 'utf-8');
-
-  return `<persisted-output>
-Output too large (${(content.length / 1024).toFixed(1)}KB).
-Full output saved to: ${filePath}
-If you need the complete content, it is recommended to read it in segments
-
-Preview (first 2KB):
-${content.slice(0, PREVIEW_LENGTH)}
-...
-</persisted-output>`;
-}
+// —— 工具输出过大时的落盘处理（实现在 tools/persist_output.ts，这里做转发） ————
+export { maybePersistedOutput } from './tools/persist_output.js';
