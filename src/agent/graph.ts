@@ -26,6 +26,7 @@ import { evaluateWritePermission } from './permission/write.js';
 import { evaluateExecPermission } from './permission/exec.js';
 import { evaluateNetworkPermission } from './permission/network.js';
 import { runHooks } from './hooks/hooks.js';
+import { applyTodoStatus, createTodoItems, todoListPrompt, type TodoItem, type TodoStatus } from './todo.js';
 
 // 全局命令运行时没有 --env-file，这里兜底加载 .env（不覆盖已有环境变量）
 loadEnv({
@@ -73,6 +74,11 @@ const StateAnnotation = Annotation.Root({
     reducer: (_, next) => next,
     default: () => 0,
   }),
+  // todoList：长任务计划（由 checkpointer 持久化，不受 context 压缩影响）
+  todoList: Annotation<TodoItem[]>({
+    reducer: (_, next) => next,
+    default: () => [],
+  }),
 });
 
 type AgentState = typeof StateAnnotation.State;
@@ -102,6 +108,7 @@ function evaluatePermission(
 ): { action: 'allow' | 'confirm' | 'block'; filepath?: string; reason?: string } {
   const tool = agentTools.find((t) => t.name === toolName);
   const level = tool?.permission_level;
+  if (level === 'none') return { action: 'allow' };
   if (level === 'read') return evaluateReadPermission(args);
   if (level === 'write') return evaluateWritePermission(args);
   if (level === 'exec') return evaluateExecPermission(args);
@@ -114,7 +121,8 @@ export interface BuildAgentOptions {
   tools: GraphTool[];
   /** 记忆存储（main agent 用 SqliteSaver，subagent 用 MemorySaver） */
   checkpointer: BaseCheckpointSaver;
-  systemPrompt: string;
+  /** 静态 prompt 文本，或每次模型请求时动态构建的函数（可携带最新记忆） */
+  systemPrompt: string | (() => string);
 }
 
 /**
@@ -124,13 +132,18 @@ export interface BuildAgentOptions {
 export function buildAgentGraph(options: BuildAgentOptions): CompiledStateGraph<unknown, unknown, string> {
   const { tools: agentTools, checkpointer, systemPrompt } = options;
   const modelWithTools = model.bindTools(agentTools as never[]);
+  const resolveSystemPrompt = typeof systemPrompt === 'function' ? systemPrompt : () => systemPrompt;
 
   async function modelRequest(
     state: AgentState,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     config: any,
   ): Promise<Partial<AgentState>> {
-    const messages = [new SystemMessage(systemPrompt), ...getModelInputMessages(state)];
+    // prompt 每次请求重新构建（近期记忆带缓存，开销可忽略），并附上当前 todo 进度
+    const messages = [
+      new SystemMessage(resolveSystemPrompt() + todoListPrompt(state.todoList)),
+      ...getModelInputMessages(state),
+    ];
     const response = await modelWithTools.invoke(messages, config);
     return { messages: [response] };
   }
@@ -172,6 +185,7 @@ export function buildAgentGraph(options: BuildAgentOptions): CompiledStateGraph<
       [];
 
     const outputs: ToolMessage[] = [];
+    let todoListDelta: TodoItem[] | undefined;
     for (const call of toolCalls) {
       // 权限判定：危险路径直接阻止；安全场景直接执行；其余需要用户确认
       const perm = evaluatePermission(agentTools, call.name, call.args);
@@ -229,6 +243,19 @@ export function buildAgentGraph(options: BuildAgentOptions): CompiledStateGraph<
         const output = await (
           tool as unknown as { invoke: (input: unknown, config?: unknown) => Promise<unknown> }
         ).invoke({ ...call, type: 'tool_call' }, config);
+
+        // todo-list 工具单独处理：它们要修改 state 数据，和普通工具不一样
+        if (call.name === 'create_todo_list') {
+          todoListDelta = createTodoItems((call.args as { todos: string[] }).todos);
+        } else if (call.name === 'update_todo_status') {
+          const a = call.args as { id: number; status: TodoStatus };
+          try {
+            todoListDelta = applyTodoStatus(state.todoList ?? [], a.id, a.status);
+          } catch {
+            // 参数非法时 state 保持不变，工具输出文本里已包含失败原因
+          }
+        }
+
         const raw = typeof output === 'string' ? output : JSON.stringify(output);
         let content = await maybePersistedOutput(raw, call.id ?? 'unknown');
 
@@ -253,7 +280,7 @@ export function buildAgentGraph(options: BuildAgentOptions): CompiledStateGraph<
       }
     }
 
-    return { messages: outputs };
+    return { messages: outputs, ...(todoListDelta ? { todoList: todoListDelta } : {}) };
   }
 
   const workflow = new StateGraph(StateAnnotation)

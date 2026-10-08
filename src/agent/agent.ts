@@ -12,8 +12,8 @@ import { closeMcp, loadMcpTools } from './mcp/client.js';
 // graph.ts 中已完成 .env 加载与模型初始化，这里无需重复
 
 // —— Prompt 组装 ————————————————————————————————————————————
-// 顺序：基础人设 → 用户画像（模板+.data/profile.md 实际信息）→ （memoryPrompt 预留）→ skills
-const systemPrompt = buildSystemPrompt();
+// buildSystemPrompt 作为函数传入 graph，每次模型请求时重新构建：
+// 近期记忆（带缓存）和 todo 进度都能及时反映到 system prompt 中
 
 /**
  * 当前模型的最大上下文 token 数（动态查询模型服务方接口，带缓存）
@@ -45,7 +45,7 @@ export async function initAgent(options: { loadMcp?: boolean } = {}): Promise<vo
   agentInstance = buildAgentGraph({
     tools: allTools,
     checkpointer,
-    systemPrompt,
+    systemPrompt: buildSystemPrompt,
   });
 }
 

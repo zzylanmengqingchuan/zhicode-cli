@@ -59,3 +59,42 @@ export function initDb(dbPath: string = DB_PATH): void {
     db.close();
   }
 }
+
+export interface RecentMemory {
+  id: number;
+  type: string;
+  content: string;
+  importance: number;
+  updated_at: string;
+}
+
+// 近期记忆缓存：system prompt 每次模型请求都会读取，避免反复查库；
+// memory_create / memory_delete 写入成功后调用 invalidateRecentMemoriesCache 失效
+let recentMemoriesCache: { key: string; rows: RecentMemory[] } | null = null;
+
+/**
+ * 按时间逆序取最近的记忆（用于拼进 system prompt），带进程内缓存
+ */
+export function listRecentMemories(limit = 10, dbPath: string = DB_PATH): RecentMemory[] {
+  const key = `${dbPath}:${limit}`;
+  if (recentMemoriesCache?.key === key) return recentMemoriesCache.rows;
+
+  initDb(dbPath);
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    const rows = db
+      .prepare(
+        'SELECT id, type, content, importance, updated_at FROM memory ORDER BY updated_at DESC, id DESC LIMIT ?',
+      )
+      .all(limit) as RecentMemory[];
+    recentMemoriesCache = { key, rows };
+    return rows;
+  } finally {
+    db.close();
+  }
+}
+
+/** 记忆发生增删后调用，下次 listRecentMemories 重新查库 */
+export function invalidateRecentMemoriesCache(): void {
+  recentMemoriesCache = null;
+}

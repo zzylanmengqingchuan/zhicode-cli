@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { DB_PATH, initDb } from '../db.js';
+import { DB_PATH, initDb, invalidateRecentMemoriesCache } from '../db.js';
 
 /**
  * memory_delete 工具的具体实现（纯函数，方便单元测试）
@@ -13,6 +13,7 @@ export function deleteMemory(id: number, dbPath: string = DB_PATH): string {
     if (result.changes === 0) {
       return `记忆不存在（id: ${id}），可能已被删除`;
     }
+    invalidateRecentMemoriesCache();
     return `记忆已删除（id: ${id}）`;
   } finally {
     db.close();

@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { DB_PATH, initDb } from '../db.js';
+import { DB_PATH, initDb, invalidateRecentMemoriesCache } from '../db.js';
 
 export const MEMORY_TYPES = ['fact', 'event', 'preference', 'skill'] as const;
 export type MemoryType = (typeof MEMORY_TYPES)[number];
@@ -39,6 +39,7 @@ export function createMemory(input: MemoryInput, dbPath: string = DB_PATH): stri
         importance,
         input.sessionId ?? null,
       );
+    invalidateRecentMemoriesCache();
     return `记忆已存储（id: ${result.lastInsertRowid}，类型: ${input.type}）`;
   } finally {
     db.close();

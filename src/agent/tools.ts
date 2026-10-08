@@ -1,4 +1,5 @@
 import { tool } from 'langchain';
+import { getCurrentTaskInput } from '@langchain/langgraph';
 import { z } from 'zod';
 import { searchWeb } from './tools/search.js';
 import { readLocalFile } from './tools/read_file.js';
@@ -14,14 +15,16 @@ import { retrieveMemories } from './tools/memory_retrieve.js';
 import { deleteMemory } from './tools/memory_delete.js';
 import { updateProfile } from './tools/profile_update.js';
 import { runSubAgent } from './tools/sub_agent.js';
+import { createTodoListText, updateTodoStatusText } from './tools/todo_list.js';
+import { TODO_STATUSES, type TodoItem, type TodoStatus } from './todo.js';
 
 /**
  * 工具注册中心：统一声明每个工具的 name / description / schema / permission_level，
  * 具体实现见同目录下的各文件。新增工具时在这里注册并加入 tools 数组。
  */
 
-/** 权限级别：read 读文件 / write 写文件 / exec 执行命令 / network 网络请求 / db 数据库操作 */
-export type PermissionLevel = 'read' | 'write' | 'exec' | 'network' | 'db';
+/** 权限级别：read 读文件 / write 写文件 / exec 执行命令 / network 网络请求 / db 数据库操作 / none 无副作用自动允许 */
+export type PermissionLevel = 'read' | 'write' | 'exec' | 'network' | 'db' | 'none';
 
 /** 给工具附加 permission_level 属性（后续权限校验使用） */
 function withPerm<T extends object>(
@@ -197,6 +200,33 @@ export const agentTool = withPerm(
   'exec',
 );
 
+export const createTodoListTool = withPerm(
+  tool(async ({ todos }) => createTodoListText(todos), {
+    name: 'create_todo_list',
+    description:
+      '当任务是复杂的多步任务时，先创建一个 todo-list 计划（步骤标题列表），之后按计划逐步执行',
+    schema: z.object({
+      todos: z.array(z.string()).min(1).describe('计划步骤的标题列表，按执行顺序排列'),
+    }),
+  }),
+  'none',
+);
+
+export const updateTodoStatusTool = withPerm(
+  tool(async ({ id, status }) => {
+    const state = getCurrentTaskInput() as { todoList?: TodoItem[] };
+    return updateTodoStatusText(state.todoList, id, status as TodoStatus);
+  }, {
+    name: 'update_todo_status',
+    description: '更新 todo-list 中某一步的状态（每完成一步都要及时更新）',
+    schema: z.object({
+      id: z.number().describe('要更新的 todo 项 id'),
+      status: z.enum(TODO_STATUSES as [TodoStatus, ...TodoStatus[]]).describe('新状态'),
+    }),
+  }),
+  'none',
+);
+
 export const tools = [
   search,
   readFile,
@@ -211,6 +241,8 @@ export const tools = [
   memoryRetrieveTool,
   memoryDeleteTool,
   profileUpdateTool,
+  createTodoListTool,
+  updateTodoStatusTool,
   agentTool,
 ];
 
