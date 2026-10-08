@@ -1,0 +1,24 @@
+# 源码与测试（只发布编译产物 dist/）
+src/
+coverage/
+
+# 开发与构建配置
+tsconfig.json
+jest.config.ts
+pnpm-workspace.yaml
+pnpm-lock.yaml
+skills-lock.json
+AGENTS.md
+
+# 项目级运行配置（用户数据与密钥不发布）
+.env
+.data/
+tool_output/
+tools.log
+mcp.json
+
+# 测试与临时目录
+tmp-*/
+
+# 系统文件
+.DS_Store

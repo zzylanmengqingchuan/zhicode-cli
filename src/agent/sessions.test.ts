@@ -92,6 +92,12 @@ describe('listSessions', () => {
   it('数据库文件不存在时返回空数组', () => {
     expect(listSessions(20, path.join(TMP_DIR, 'no-such.db'))).toEqual([]);
   });
+
+  it('数据库没有 checkpoints 表（从未对话过）时返回空数组', () => {
+    const emptyDb = path.join(TMP_DIR, 'no-checkpoints.db');
+    new Database(emptyDb).close();
+    expect(listSessions(20, emptyDb)).toEqual([]);
+  });
 });
 
 describe('sessionExists', () => {
@@ -105,6 +111,12 @@ describe('sessionExists', () => {
 
   it('数据库文件不存在时返回 false', () => {
     expect(sessionExists('thread-A', path.join(TMP_DIR, 'no-such.db'))).toBe(false);
+  });
+
+  it('数据库没有 checkpoints 表（从未对话过）时返回 false', () => {
+    const emptyDb = path.join(TMP_DIR, 'no-checkpoints-2.db');
+    new Database(emptyDb).close();
+    expect(sessionExists('thread-A', emptyDb)).toBe(false);
   });
 });
 

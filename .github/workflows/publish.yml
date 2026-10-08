@@ -33,15 +33,15 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      # 测试在 import 时会读取 ~/.zhiwen/zhiwen.json，CI 环境放一份假配置（网络请求已被测试 mock）
-      - name: Create dummy model config for tests
+      # 测试在 import 时会读取 ~/.zhiwen/zhiwen.json；MODEL_API_KEY 供集成测试真实调用模型
+      - name: Create model config for tests
         run: |
           mkdir -p ~/.zhiwen
-          cat > ~/.zhiwen/zhiwen.json <<'EOF'
+          cat > ~/.zhiwen/zhiwen.json <<EOF
           {
             "model": {
               "model": "kimi-k2.6",
-              "apiKey": "ci-dummy-key",
+              "apiKey": "${{ secrets.MODEL_API_KEY }}",
               "baseURL": "https://api.moonshot.cn/v1"
             }
           }

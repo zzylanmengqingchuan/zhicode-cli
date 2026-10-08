@@ -10,6 +10,14 @@ export interface SessionInfo {
 
 const MAX_QUESTION_LEN = 50;
 
+/** checkpoints 表由 SqliteSaver 首次写入时创建；从未对话过的数据库里没有该表 */
+function hasCheckpointsTable(db: Database.Database): boolean {
+  return (
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'checkpoints'").get() !==
+    undefined
+  );
+}
+
 interface SerializedMessage {
   id?: string[];
   kwargs?: { content?: unknown };
@@ -39,6 +47,7 @@ export function listSessions(limit = 20, dbPath: string = DB_PATH): SessionInfo[
 
   const db = new Database(dbPath, { readonly: true });
   try {
+    if (!hasCheckpointsTable(db)) return [];
     const rows = db
       .prepare(
         `SELECT thread_id, checkpoint FROM checkpoints
@@ -70,6 +79,7 @@ export function sessionExists(threadId: string, dbPath: string = DB_PATH): boole
   if (!fs.existsSync(dbPath)) return false;
   const db = new Database(dbPath, { readonly: true });
   try {
+    if (!hasCheckpointsTable(db)) return false;
     const row = db
       .prepare('SELECT 1 FROM checkpoints WHERE thread_id = ? LIMIT 1')
       .get(threadId);

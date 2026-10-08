@@ -57,3 +57,29 @@ export const model = new ChatOpenAI({
   },
   streaming: true,
 });
+
+const CONFIG_DOC = 'https://github.com/zzylanmengqingchuan/zhicode-cli';
+
+/**
+ * 启动时验证模型配置是否可用：
+ * - apiKey 不存在 → 抛出错误，友好提示（拦截启动）
+ * - apiKey 过短（< 20）→ 发送一个最简单的 API 请求验证；失败也抛出友好错误
+ * - apiKey 足够长 → 跳过验证（避免每次启动的额外消耗）
+ */
+export async function checkModel(modelConfig: ModelConfig = loadModelConfig()): Promise<void> {
+  if (!modelConfig.apiKey) {
+    throw new Error(
+      `未配置模型 API Key，请编辑 ${CONFIG_PATH} 填入 apiKey。\n配置文档: ${CONFIG_DOC}`,
+    );
+  }
+  if (modelConfig.apiKey.length < 20) {
+    try {
+      await model.invoke([{ role: 'user', content: 'hi' }]);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `模型 API Key 验证失败（${modelConfig.model} @ ${modelConfig.baseURL}）: ${detail}\n请检查 ${CONFIG_PATH} 中的配置是否正确。\n配置文档: ${CONFIG_DOC}`,
+      );
+    }
+  }
+}

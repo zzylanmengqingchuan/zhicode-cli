@@ -1,9 +1,9 @@
 {
   "name": "zhiwen",
-  "version": "1.0.0",
-  "description": "知文：AI 命令行助手，基于 LangChain ReAct Agent，支持多模型（Kimi/DeepSeek/GLM 等）",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "version": "1.0.1",
+  "description": "知问：AI 命令行助手，基于 LangChain ReAct Agent，支持多模型（Kimi/DeepSeek/GLM 等）",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
   "bin": {
     "zhiwen": "dist/src/index.js"
   },
